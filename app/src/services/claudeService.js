@@ -815,10 +815,20 @@ async function generateViaSeomachine(row, contextPath, rulesPath, onProgress, fe
       : `Engine: seomachine — write.md not found at ${root} (proceeding with brand context only)`);
   }
 
-  const contextContent = loadContextFiles(contextPath);   // per-blog brand context (reused)
+  const brand = brandFromBlog(blog);
+
+  // Per-domain brand context is AUTHORITATIVE. If this blog has no per-domain
+  // folder (or it's empty), fall back to seomachine's default root context/.
+  let contextContent = loadContextFiles(contextPath);
+  if (!contextContent || !contextContent.trim()) {
+    const defaultContextDir = path.join(root, 'context');
+    contextContent = loadContextFiles(defaultContextDir);
+    if (onProgress) onProgress(contextContent
+      ? `No per-domain context for ${brand} — falling back to seomachine default context/`
+      : `No per-domain or default context found — generating from methodology only`);
+  }
   const rulesContent = loadRulesFile(rulesPath);          // per-blog rules (reused)
   const feedbackSection = buildFeedbackSection(feedbackList);
-  const brand = brandFromBlog(blog);
 
   const systemContent = seomachine.buildSystemContent({ methodology, contextContent, rulesContent, feedbackSection, brand });
   const userPrompt = seomachine.buildUserPrompt({ row, additionalInstructions });

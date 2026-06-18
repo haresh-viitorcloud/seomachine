@@ -144,6 +144,19 @@ Bridge code (all under `app/`): `src/services/seomachineService.js` (prompt buil
 `src/services/pythonGate.js` + `scripts/seomachine_quality_gate.py` (the scrub+score gate). Engine
 setting persists in `queue_state.generation_engine` (env `GENERATION_ENGINE` is the fallback).
 
+### Per-domain content (multi-blog)
+
+Brand content lives at the repo root, with the default `context/` as the fallback:
+- `context/` — the **default/main** brand context (kept as-is; the upstream single-brand). Used when a blog has no per-domain folder.
+- `blogs/{domain}/context/` — **per-domain** brand context (overrides the default). Domains: `vc`, `everycred`, `everyticket`.
+- `rules/{domain}_blog_generation.md` — per-domain generation rules.
+
+Each blog's `.env` points at these via `BLOG_{SLUG}_CONTEXT_PATH=../blogs/{slug}/context` and
+`BLOG_{SLUG}_RULES_PATH=../rules/{slug}_blog_generation.md` (paths are relative to `app/`). At
+generation, the seomachine engine loads the selected domain's `context/`; if it's absent or empty
+it **falls back to the root `context/`**. To add a domain: create `blogs/{slug}/context/` (+ rules)
+and the `BLOG_{SLUG}_*` env vars, then restart.
+
 ### Keeping in sync with upstream
 
 ```bash

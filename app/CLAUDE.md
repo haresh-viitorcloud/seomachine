@@ -95,10 +95,10 @@ No test suite or linter is configured. Server listens on `APP_PORT` (default 400
 Blogs configured via `.env` with `BLOG_{SLUG}_*` prefix. `seedBlogConfigsFromEnv()` syncs all credentials to DB on every restart — `.env` is always the source of truth. A blog is detected purely by the presence of `BLOG_{SLUG}_NAME`; WP fields may be left blank, in which case the blog can be selected and generated for but not posted.
 
 Conventions (not enforced by code, follow them anyway):
-- All blog context lives under a single `blogs/` parent: `blogs/{slug}/context/` (e.g. `blogs/everycred/context`). Keep new blogs here so the repo root doesn't accumulate one folder per blog. `CONTEXT_PATH` must be set explicitly — it has no default.
-- Rules file defaults to `./rules/{slug}_blog_generation.md` when `RULES_PATH` is unset. Each blog's rules are tuned to its own `context/seo-guidelines.md` + `style-guide.md`, so they intentionally differ (word count, FAQ count, sentence length, voice) — do not unify them.
+- Per-domain blog content lives at the **seomachine repo root** (one level up from `app/`): `../blogs/{slug}/context/` and `../rules/{slug}_blog_generation.md`. The repo root also has the default `context/` folder, which the seomachine engine uses as a **fallback** when a blog has no per-domain folder. `CONTEXT_PATH` points at `../blogs/{slug}/context`.
+- Each blog's rules are tuned to its own `context/seo-guidelines.md` + `style-guide.md`, so they intentionally differ (word count, FAQ count, sentence length, voice) — do not unify them.
 
-To add a blog: add `BLOG_{SLUG}_*` vars to `.env` + create `blogs/{slug}/context/` + `rules/{slug}_blog_generation.md` → restart.
+To add a blog: add `BLOG_{SLUG}_*` vars to `app/.env` + create `../blogs/{slug}/context/` + `../rules/{slug}_blog_generation.md` (at the seomachine root) → restart.
 
 `POST /api/configs/:id/test` (`wordpressService.testConnection`) only checks that `/wp-json/wp/v2/` is reachable — it does **not** validate the login. To verify credentials for the browser method, do a real `wp-login.php` check.
 
@@ -171,7 +171,7 @@ This app lives at `<seomachine-repo>/app/` as an overlay on the SEO Machine fork
 **How the seomachine engine works** (`generateViaSeomachine()` in `claudeService.js`, single-call):
 1. `seomachineService.resolveRoot()` finds the parent repo (`path.resolve(__dirname,'../../..')`, override with env `SEOMACHINE_ROOT`).
 2. `seomachineService.loadMethodology(root)` reads the **live** `.claude/commands/write.md` — so upstream improvements flow in automatically. Do NOT copy write.md's text into code.
-3. Per-blog brand context is loaded with the existing `loadContextFiles(contextPath)` and injected as **AUTHORITATIVE** (this is what makes the single-brand upstream multi-blog). The prompt explicitly tells the model to ignore any example brand (e.g. "Castos") from the methodology.
+3. Per-domain brand context is loaded with the existing `loadContextFiles(contextPath)` and injected as **AUTHORITATIVE** (this is what makes the single-brand upstream multi-blog). Per-domain content lives at the **seomachine root** — `../blogs/{domain}/context/` (relative to `app/`); if a blog has no per-domain folder, the engine **falls back to the root default `context/`**. The prompt explicitly tells the model to ignore any example brand (e.g. "Castos") from the methodology.
 4. Generation reuses the proven `generateViaCli()` (with `cwd = seomachine root`) / `generateViaSdk()` and `parseGeneratedContent()` — so the return contract is identical to native and all downstream stages are unchanged.
 5. **Quality gate** (`pythonGate.scrubAndScore()` → `scripts/seomachine_quality_gate.py`): runs the parent repo's `content_scrubber.py` (AI-watermark removal) + `content_scorer.py` (0-100 composite). The score is attached as `result._seoMachineScore`, persisted to `jobs.seomachine_score`, and shown as the `Q <score>` chip in the jobs UI. The gate is **best-effort** — if Python/`textstat` is missing or it errors, generation still succeeds.
 
