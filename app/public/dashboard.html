@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <script>if(localStorage.getItem("ct-theme")==="light")document.documentElement.setAttribute("data-theme","light")</script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — CT Automation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <style>
+    /* Pipeline row cards */
+    .pipeline-row {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      transition: border-color .15s, background .15s;
+    }
+    .pipeline-row.status-pending     { border-left-color: #475569; }
+    .pipeline-row.status-generating  { border-left-color: var(--primary); background: rgba(99,102,241,.04); }
+    .pipeline-row.status-posting     { border-left-color: var(--info); background: rgba(59,130,246,.04); }
+    .pipeline-row.status-drafted     { border-left-color: var(--success); background: rgba(34,197,94,.04); }
+    .pipeline-row.status-error       { border-left-color: var(--danger); background: rgba(239,68,68,.04); }
+    .pipeline-row.status-skipped     { border-left-color: #334155; opacity: .6; }
+    .pipeline-row.status-paused      { border-left-color: var(--warning); background: rgba(245,158,11,.04); }
+
+    .row-top { display: flex; align-items: flex-start; gap: 12px; }
+    .row-num  { font-size: 11px; color: var(--text-muted); min-width: 22px; padding-top: 2px; }
+    .row-body { flex: 1; min-width: 0; }
+    .row-title {
+      font-size: 13.5px; font-weight: 500; margin-bottom: 4px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .row-meta  { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .row-meta span { font-size: 11px; color: var(--text-muted); }
+    .row-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+
+    /* Progress bar for active jobs */
+    .progress-bar-wrap {
+      height: 3px; background: var(--border); border-radius: 2px; margin-top: 8px; overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%; border-radius: 2px;
+      background: linear-gradient(90deg, var(--primary), #a78bfa);
+      animation: progress-pulse 1.5s ease-in-out infinite;
+      width: 60%;
+    }
+    @keyframes progress-pulse {
+      0%,100% { width: 40%; margin-left: 0; }
+      50% { width: 60%; margin-left: 20%; }
+    }
+
+    /* Stage labels */
+    .stage-label {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
+    }
+    .stage-pending    { color: #64748b; }
+    .stage-generating { color: #818cf8; }
+    .stage-posting    { color: #60a5fa; }
+    .stage-drafted    { color: #4ade80; }
+    .stage-error      { color: #f87171; }
+    .stage-skipped    { color: #475569; }
+    .stage-paused     { color: #fbbf24; }
+
+    /* Stats strip */
+    .stats-strip {
+      display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .stat-chip {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 6px 14px;
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; cursor: pointer; transition: border-color .15s;
+    }
+    .stat-chip:hover, .stat-chip.active { border-color: var(--primary); }
+    .stat-chip .n { font-weight: 700; font-size: 15px; }
+    .stat-chip.chip-all      .n { color: var(--text); }
+    .stat-chip.chip-pending  .n { color: #64748b; }
+    .stat-chip.chip-active   .n { color: var(--primary); }
+    .stat-chip.chip-drafted  .n { color: var(--success); }
+    .stat-chip.chip-error    .n { color: var(--danger); }
+    .stat-chip.chip-paused   .n { color: var(--warning); }
+
+    /* Elapsed timer on active jobs */
+    .elapsed-timer { color: var(--primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    /* Log sidebar */
+    .log-time { font-size: 11px; color: var(--text-muted); min-width: 66px; }
+    .log-dot  { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+    .log-dot.info    { background: var(--info); }
+    .log-dot.success { background: var(--success); }
+    .log-dot.warning { background: var(--warning); }
+    .log-dot.error   { background: var(--danger); }
+
+    /* Content preview modal */
+    .preview-section { margin-bottom: 16px; }
+    .preview-section h4 { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+    .preview-content-box { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 14px; font-size: 13px; line-height: 1.7; max-height: 360px; overflow-y: auto; }
+    .preview-content-box h1, .preview-content-box h2 { color: var(--text); margin: 10px 0 6px; }
+    .preview-content-box h3 { color: var(--text); margin: 8px 0 4px; font-size: 14px; }
+    .preview-content-box p, .preview-content-box li { color: var(--text-muted); margin-bottom: 6px; }
+
+    /* Timeline modal */
+    .timeline { padding: 4px 0; }
+    .tl-item { display: flex; gap: 14px; padding: 10px 0; position: relative; }
+    .tl-item:not(:last-child)::before {
+      content: ''; position: absolute; left: 17px; top: 30px; bottom: -6px;
+      width: 2px; background: var(--border);
+    }
+    .tl-icon { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+    .tl-icon.info    { background: rgba(59,130,246,.15); color: #60a5fa; }
+    .tl-icon.success { background: rgba(34,197,94,.15);  color: #4ade80; }
+    .tl-icon.warning { background: rgba(245,158,11,.15); color: #fbbf24; }
+    .tl-icon.error   { background: rgba(239,68,68,.15);  color: #f87171; }
+    .tl-body { flex: 1; min-width: 0; }
+    .tl-msg  { font-size: 13px; line-height: 1.5; color: var(--text); }
+    .tl-time { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+    /* SEO score panel */
+    .seo-panel { display: flex; gap: 16px; align-items: flex-start; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+    .seo-gauge { flex-shrink: 0; width: 92px; text-align: center; }
+    .seo-ring { width: 84px; height: 84px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto; }
+    .seo-ring-inner { width: 66px; height: 66px; border-radius: 50%; background: var(--surface); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .seo-ring-score { font-size: 22px; font-weight: 700; line-height: 1; }
+    .seo-ring-max { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+    .seo-grade { font-size: 12px; font-weight: 600; margin-top: 6px; }
+    .seo-stats { font-size: 10px; color: var(--text-muted); margin-top: 4px; line-height: 1.5; }
+    .seo-checks { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+    .seo-check { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.35; padding: 2px 0; }
+    .seo-check .ic { flex-shrink: 0; width: 15px; height: 15px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; margin-top: 1px; color: #fff; }
+    .seo-check .ic.pass { background: #22c55e; }
+    .seo-check .ic.partial { background: #f59e0b; }
+    .seo-check .ic.fail { background: #ef4444; }
+    .seo-check .lbl { color: var(--text); }
+    .seo-check .det { color: var(--text-muted); display: block; font-size: 10.5px; }
+    @media (max-width: 640px) { .seo-checks { grid-template-columns: 1fr; } .seo-panel { flex-direction: column; align-items: center; } }
+  </style>
+</head>
+<body>
+<div class="app-layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand"><div class="logo">⚡ CT Automation</div><div class="sub">Content Auto-Draft Tool</div></div>
+    <nav class="sidebar-nav">
+      <a href="/dashboard" class="nav-item active"><span class="icon">📊</span> Dashboard</a>
+      <a href="/jobs"      class="nav-item"><span class="icon">📋</span> All Jobs</a>
+      <a href="/upload"    class="nav-item"><span class="icon">📤</span> Upload Spreadsheet</a>
+      <a href="/settings"  class="nav-item"><span class="icon">⚙️</span> Blog Settings</a>
+      <a href="/claude-setup" class="nav-item"><span class="icon">🤖</span> Claude Setup</a>
+      <a href="/pitch-demo"  class="nav-item"><span class="icon">🎬</span> Product Demo</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="avatar" id="avatarInitial">A</div>
+        <div><div id="sidebarUsername" style="font-size:13px;font-weight:500">Admin</div><div class="text-muted text-small">Administrator</div></div>
+      </div>
+      <button class="nav-item" onclick="logout()" style="color:var(--danger)"><span class="icon">🚪</span> Logout</button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+
+    <!-- Header -->
+    <div class="flex-between" style="margin-bottom:20px">
+      <div>
+        <h1 style="font-size:20px;font-weight:600">Content Pipeline</h1>
+        <p class="text-muted text-small">Real-time blog generation and WordPress drafting queue</p>
+      </div>
+      <div class="flex gap-2">
+        <!-- Domain / blog filter (hidden when only one blog) -->
+        <select id="blogFilter" class="form-control" style="width:170px;padding:4px 8px;font-size:12px;display:none" onchange="onBlogFilterChange(this.value)" title="Show data for one blog/domain only">
+          <option value="">All domains</option>
+        </select>
+        <button id="btnResetFilter" class="btn btn-secondary btn-sm" onclick="resetFilters()" style="display:none" title="Clear domain and status filters">↺ Reset</button>
+        <!-- Days filter -->
+        <select id="daysFilter" class="form-control" style="width:140px;padding:4px 8px;font-size:12px" onchange="loadJobs()" title="Show jobs from the last N days">
+          <option value="7" selected>Last 7 days</option>
+          <option value="14">Last 14 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="0">All time</option>
+        </select>
+        <button id="btnTestMode" class="btn btn-secondary btn-sm" onclick="toggleTestMode()" title="Test mode uses instant mock content — no Claude API calls or token usage">🧪 Test Mode: OFF</button>
+        <button id="btnPauseResume" class="btn btn-secondary btn-sm" onclick="toggleQueue()">⏸ Pause All</button>
+        <button class="btn btn-secondary btn-sm" onclick="processNext()">▶ Process Next</button>
+        <a href="/upload" class="btn btn-primary btn-sm">+ Upload Sheet</a>
+      </div>
+    </div>
+
+    <!-- Active job banner -->
+    <div id="activeBanner" class="hidden" style="background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px;font-size:13px">
+      <span class="spinner" style="color:var(--primary)"></span>
+      <span id="activeBannerMsg">Processing...</span>
+    </div>
+
+    <!-- Stats strip -->
+    <div class="stats-strip" id="statsStrip">
+      <div class="stat-chip chip-all active" onclick="filterBy('')">
+        <span class="n" id="sc-total">0</span><span>All</span>
+      </div>
+      <div class="stat-chip chip-pending" onclick="filterBy('pending')">
+        <span class="n" id="sc-pending">0</span><span>Pending</span>
+      </div>
+      <div class="stat-chip chip-active" onclick="filterBy('generating')">
+        <span class="n" id="sc-inprogress">0</span><span>In Progress</span>
+      </div>
+      <div class="stat-chip chip-drafted" onclick="filterBy('drafted')">
+        <span class="n" id="sc-drafted">0</span><span>Drafted</span>
+      </div>
+      <div class="stat-chip chip-error" onclick="filterBy('error')">
+        <span class="n" id="sc-error">0</span><span>Error</span>
+      </div>
+      <div class="stat-chip chip-paused" onclick="filterBy('paused')">
+        <span class="n" id="sc-paused">0</span><span>Paused</span>
+      </div>
+    </div>
+
+    <!-- Generation analytics -->
+    <div class="card" id="analyticsCard">
+      <div class="card-header">
+        <h3>📈 Generation Analytics</h3>
+        <div class="flex gap-2" style="align-items:center">
+          <div class="seg" id="analyticsPeriod">
+            <button type="button" class="seg-btn active" data-period="daily" onclick="setAnalyticsPeriod('daily')">Daily</button>
+            <button type="button" class="seg-btn" data-period="weekly" onclick="setAnalyticsPeriod('weekly')">Weekly</button>
+            <button type="button" class="seg-btn" data-period="monthly" onclick="setAnalyticsPeriod('monthly')">Monthly</button>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="loadAnalytics()" title="Refresh analytics">↻</button>
+        </div>
+      </div>
+
+      <div class="analytics-windows" id="analyticsWindows"></div>
+
+      <div class="analytics-chart-head">
+        <div class="text-muted text-small" id="chartTitle">Posts &amp; tokens — last 14 days</div>
+        <div class="chart-legend">
+          <span><i class="lg lg-posts"></i> Posts</span>
+          <span><i class="lg lg-tokens"></i> Tokens</span>
+        </div>
+      </div>
+      <div class="bar-chart" id="barChart">
+        <div class="text-muted text-small" style="margin:auto">Loading analytics…</div>
+      </div>
+
+      <div class="text-muted text-small" style="margin:16px 0 6px">Recent posts — token usage <span style="opacity:.7">· Est. cost = API-equivalent token cost (not billed on a Claude subscription)</span></div>
+      <div class="table-wrap">
+        <table class="analytics-table">
+          <thead>
+            <tr>
+              <th>Post</th>
+              <th style="text-align:right">Tokens In</th>
+              <th style="text-align:right">Tokens Out</th>
+              <th style="text-align:right">Total</th>
+              <th style="text-align:right" title="API-equivalent token cost — not billed on a Claude subscription">Est. cost</th>
+              <th style="text-align:right">When</th>
+            </tr>
+          </thead>
+          <tbody id="tokenTableBody">
+            <tr><td colspan="6" class="text-muted" style="text-align:center;padding:16px">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 300px;gap:20px;align-items:start">
+
+      <!-- Pipeline list -->
+      <div>
+        <div class="flex-between" style="margin-bottom:12px">
+          <div id="filterLabel" class="text-muted text-small">Showing all jobs</div>
+          <div class="flex gap-2">
+            <button class="btn btn-secondary btn-sm" onclick="bulkAction('pause_pending')">⏸ Pause All Pending</button>
+            <button class="btn btn-secondary btn-sm" onclick="bulkAction('resume')">▶ Resume Paused</button>
+            <button class="btn btn-secondary btn-sm" onclick="loadJobs()">↻</button>
+          </div>
+        </div>
+
+        <div id="pipelineList">
+          <div class="skeleton" style="height:64px;margin-bottom:10px"></div>
+          <div class="skeleton" style="height:64px;margin-bottom:10px"></div>
+          <div class="skeleton" style="height:64px;margin-bottom:10px"></div>
+          <div class="skeleton" style="height:64px"></div>
+        </div>
+      </div>
+
+      <!-- Activity log sidebar -->
+      <div style="position:sticky;top:24px">
+        <div class="card mb-0">
+          <div class="card-header">
+            <h3 style="font-size:13px">Activity Log</h3>
+            <button class="btn btn-secondary btn-sm" onclick="loadLogs()">↻</button>
+          </div>
+          <div id="logFeed" class="log-feed" style="max-height:500px">
+            <div class="text-muted text-small" style="text-align:center;padding:20px">No activity yet</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+</div>
+
+<!-- Content Preview Modal -->
+<div id="previewModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:780px">
+    <button class="modal-close" onclick="closePreview()">✕</button>
+
+    <div class="preview-section">
+      <h4>SEO Score <span class="text-muted" style="font-weight:400;font-size:11px">(predicted Rank Math)</span></h4>
+      <div id="pvSeo" class="seo-panel"></div>
+    </div>
+
+    <div class="preview-section">
+      <h4>Title</h4>
+      <div id="pvTitle" style="font-size:16px;font-weight:600;line-height:1.4"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="preview-section" style="margin:0">
+        <h4>Meta Description</h4>
+        <div id="pvMeta" class="text-small text-muted"></div>
+      </div>
+      <div class="preview-section" style="margin:0">
+        <h4>Tags</h4>
+        <div id="pvTags"></div>
+      </div>
+    </div>
+
+    <div class="preview-section">
+      <h4>Article Content</h4>
+      <div class="preview-content-box" id="pvContent"></div>
+    </div>
+
+    <div class="preview-section">
+      <h4>Featured Image Prompt</h4>
+      <div id="pvImagePrompt" class="text-small text-muted" style="font-style:italic;background:var(--surface2);padding:10px;border-radius:6px"></div>
+      <div id="pvImageSource" style="margin-top:6px"></div>
+    </div>
+
+    <div id="pvWpLink" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- Timeline Modal -->
+<div id="timelineModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:620px">
+    <button class="modal-close" onclick="closeTimeline()">✕</button>
+    <div style="margin-bottom:16px">
+      <div id="tlJobTitle" style="font-size:15px;font-weight:600;line-height:1.4;margin-bottom:4px"></div>
+      <div id="tlJobMeta" style="font-size:11px;color:var(--text-muted)"></div>
+    </div>
+    <div id="tlBody" class="timeline" style="max-height:500px;overflow-y:auto;padding-right:4px"></div>
+  </div>
+</div>
+
+<!-- Edit Job Modal -->
+<div id="editJobModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:520px">
+    <button class="modal-close" onclick="closeEditJob()">✕</button>
+    <h2 style="font-size:16px;margin-bottom:16px">✏️ Edit Job</h2>
+    <input type="hidden" id="editJobId">
+    <div class="form-group">
+      <label class="form-label">Title</label>
+      <input type="text" id="editTitle" class="form-control" placeholder="Article title">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Primary Keyword</label>
+      <input type="text" id="editKeyword" class="form-control" placeholder="primary keyword">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Secondary Keywords <span class="text-muted text-small">(comma separated)</span></label>
+      <input type="text" id="editSecondary" class="form-control" placeholder="keyword1, keyword2">
+    </div>
+    <div class="form-group">
+      <label class="form-label">
+        📝 Additional Instructions
+        <span class="text-muted text-small" style="font-weight:400">(optional — for this post only)</span>
+      </label>
+      <textarea id="editInstructions" class="form-control" rows="3"
+        placeholder="e.g. Make this article more technical. Focus on the HIPAA compliance angle. Include a comparison table. Mention our LogixHealth $192M case study."
+        style="resize:vertical;font-size:13px;line-height:1.6"></textarea>
+      <div class="form-hint">Added to Claude's prompt as highest-priority rules for this post only.</div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+      <button class="btn btn-secondary" onclick="closeEditJob()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEditJob()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/common.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+let allJobs = [];
+let activeFilter = '';
+let queuePaused = false;
+let testMode = false;
+
+// ── Domain/blog filter (shared with Jobs page, persisted across refresh) ──
+const BLOG_FILTER_KEY = 'ct-blog-filter';
+let activeBlogFilter = localStorage.getItem(BLOG_FILTER_KEY) || '';
+
+function blogParam() { return activeBlogFilter ? `&blog=${encodeURIComponent(activeBlogFilter)}` : ''; }
+
+async function loadBlogFilterOptions() {
+  const data = await API.get('/api/configs');
+  const blogs = data?.configs || [];
+  const sel = document.getElementById('blogFilter');
+  const resetBtn = document.getElementById('btnResetFilter');
+  if (!sel) return;
+  // Only show the filter when there is more than one blog to choose between
+  if (blogs.length <= 1) { sel.style.display = 'none'; resetBtn.style.display = 'none'; return; }
+  sel.style.display = '';
+  sel.innerHTML = `<option value="">All domains</option>` +
+    blogs.map(b => `<option value="${b.id}">${escHtml(b.name || b.domain || b.slug)}</option>`).join('');
+  // Drop a stale stored id that no longer exists
+  if (activeBlogFilter && !blogs.some(b => String(b.id) === String(activeBlogFilter))) {
+    activeBlogFilter = '';
+    localStorage.removeItem(BLOG_FILTER_KEY);
+  }
+  sel.value = activeBlogFilter;
+  updateResetVisibility();
+}
+
+function onBlogFilterChange(blogId) {
+  activeBlogFilter = blogId || '';
+  if (activeBlogFilter) localStorage.setItem(BLOG_FILTER_KEY, activeBlogFilter);
+  else localStorage.removeItem(BLOG_FILTER_KEY);
+  updateResetVisibility();
+  // Reload everything scoped to the selected domain
+  loadDashboard();
+  loadAnalytics();
+}
+
+function resetFilters() {
+  activeBlogFilter = '';
+  localStorage.removeItem(BLOG_FILTER_KEY);
+  const sel = document.getElementById('blogFilter');
+  if (sel) sel.value = '';
+  updateResetVisibility();
+  filterBy('');          // clear status filter back to "All"
+  loadDashboard();
+  loadAnalytics();
+}
+
+function updateResetVisibility() {
+  const resetBtn = document.getElementById('btnResetFilter');
+  const sel = document.getElementById('blogFilter');
+  if (!resetBtn) return;
+  // Show Reset whenever a domain or status filter is active (and the picker exists)
+  const show = sel && sel.style.display !== 'none' && (activeBlogFilter || activeFilter);
+  resetBtn.style.display = show ? '' : 'none';
+}
+
+// ── Init ──
+(async () => {
+  const me = await API.get('/api/auth/me');
+  if (!me || !me.loggedIn) { location.href = '/'; return; }
+  document.getElementById('sidebarUsername').textContent = me.username;
+  document.getElementById('avatarInitial').textContent = me.username[0].toUpperCase();
+  await loadBlogFilterOptions();
+  await Promise.all([loadDashboard(), loadLogs(), loadAnalytics()]);
+})();
+
+// ── Analytics ──
+let analyticsPeriod = 'daily';
+let _analyticsTimer = null;
+
+function fmtTokens(n) {
+  n = n || 0;
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + 'k';
+  return String(n);
+}
+function fmtCost(n) {
+  n = n || 0;
+  if (n === 0) return '$0';
+  return n < 1 ? '$' + n.toFixed(4) : '$' + n.toFixed(2);
+}
+
+function setAnalyticsPeriod(p) {
+  analyticsPeriod = p;
+  document.querySelectorAll('#analyticsPeriod .seg-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.period === p);
+  });
+  loadAnalytics();
+}
+
+function scheduleAnalyticsRefresh() {
+  clearTimeout(_analyticsTimer);
+  _analyticsTimer = setTimeout(loadAnalytics, 1500);
+}
+
+async function loadAnalytics() {
+  const data = await API.get(`/api/analytics?period=${analyticsPeriod}${blogParam()}`);
+  if (!data) return;
+  renderAnalytics(data);
+}
+
+function renderAnalytics(data) {
+  // Window summary tiles
+  const w = data.windows || {};
+  const t = data.totals || {};
+  const tile = (label, s) => `
+    <div class="awin">
+      <div class="awin-label">${label}</div>
+      <div class="awin-main">${s.generated || 0} <span>posts</span></div>
+      <div class="awin-sub"><span class="ok">✓ ${s.drafted || 0}</span><span class="err">✗ ${s.error || 0}</span></div>
+      <div class="awin-metrics"><span title="Total tokens used">🔢 <b>${fmtTokens(s.tokens)}</b></span><span title="Estimated API-equivalent cost">💲 <b>${fmtCost(s.cost)}</b> <span style="font-weight:400;opacity:.7">est.</span></span></div>
+    </div>`;
+  document.getElementById('analyticsWindows').innerHTML =
+    tile('Today', w.day || {}) +
+    tile('Last 7 days', w.week || {}) +
+    tile('Last 30 days', w.month || {}) +
+    tile('All time', t);
+
+  // Bar chart — grouped posts + tokens per bucket
+  const series = data.series || [];
+  const titleMap = { daily: 'Posts & tokens — last 14 days', weekly: 'Posts & tokens — last 8 weeks', monthly: 'Posts & tokens — last 6 months' };
+  document.getElementById('chartTitle').textContent = titleMap[data.period] || 'Posts & tokens';
+
+  const maxPosts = Math.max(1, ...series.map(s => s.generated || 0));
+  const maxTokens = Math.max(1, ...series.map(s => s.tokens || 0));
+  const chart = document.getElementById('barChart');
+  if (!series.length) {
+    chart.innerHTML = '<div class="text-muted text-small" style="margin:auto">No data yet</div>';
+  } else {
+    chart.innerHTML = series.map(s => {
+      const ph = (s.generated || 0) / maxPosts * 100;
+      const th = (s.tokens || 0) / maxTokens * 100;
+      const tip = `${s.label}\nPosts: ${s.generated || 0} (✓${s.drafted || 0} ✗${s.error || 0})\nTokens: ${(s.tokens || 0).toLocaleString()}\nEst. cost: ${fmtCost(s.cost)}`;
+      return `
+        <div class="bar-col" title="${escHtml(tip)}">
+          <div class="bars">
+            <div class="bar bar-posts" style="height:${s.generated ? Math.max(ph, 2) : 0}%"></div>
+            <div class="bar bar-tokens" style="height:${s.tokens ? Math.max(th, 2) : 0}%"></div>
+          </div>
+          <div class="bar-label">${escHtml(s.label)}</div>
+        </div>`;
+    }).join('');
+  }
+
+  // Per-post token table
+  const body = document.getElementById('tokenTableBody');
+  const posts = data.topPosts || [];
+  if (!posts.length) {
+    body.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:16px">No generated posts yet</td></tr>';
+  } else {
+    body.innerHTML = posts.map(p => `
+      <tr>
+        <td><span class="tok-title" title="${escHtml(p.title)}">${escHtml(p.title)}</span></td>
+        <td style="text-align:right">${(p.tokens_in || 0).toLocaleString()}</td>
+        <td style="text-align:right">${(p.tokens_out || 0).toLocaleString()}</td>
+        <td style="text-align:right"><b>${(p.tokens || 0).toLocaleString()}</b></td>
+        <td style="text-align:right">${fmtCost(p.cost)}</td>
+        <td style="text-align:right" class="text-muted">${formatDateShort(p.when_ts)}</td>
+      </tr>`).join('');
+  }
+}
+
+async function loadDashboard() {
+  const data = await API.get(`/api/dashboard?_=1${blogParam()}`);
+  if (!data) return;
+  updateStats(data.stats);
+  queuePaused = data.queuePaused;
+  updatePauseBtn();
+  if (data.isProcessing) showActiveBanner('Processing a job...');
+  await loadJobs();
+}
+
+async function loadJobs() {
+  const days = document.getElementById('daysFilter')?.value || '7';
+  const data = await API.get(`/api/jobs?limit=300&days=${days}${blogParam()}`);
+  if (!data) return;
+  allJobs = data.jobs;
+  updateStats(data.stats);
+  renderPipeline(activeFilter ? allJobs.filter(j => matchFilter(j, activeFilter)) : allJobs);
+}
+
+function matchFilter(job, filter) {
+  if (filter === 'generating') return ['generating','posting'].includes(job.status);
+  if (filter === 'paused') return job.status === 'paused';
+  return job.status === filter;
+}
+
+function filterBy(status) {
+  activeFilter = status;
+  document.querySelectorAll('.stat-chip').forEach(c => c.classList.remove('active'));
+  const chipMap = { '': 'chip-all', 'pending': 'chip-pending', 'generating': 'chip-active', 'drafted': 'chip-drafted', 'error': 'chip-error', 'paused': 'chip-paused' };
+  const cls = chipMap[status] || 'chip-all';
+  document.querySelector(`.${cls}`)?.classList.add('active');
+
+  const labels = { '': 'Showing all jobs', 'pending': 'Pending jobs', 'generating': 'In-progress jobs', 'drafted': 'Drafted to WordPress', 'error': 'Failed jobs', 'paused': 'Paused jobs', 'skipped': 'Skipped jobs' };
+  document.getElementById('filterLabel').textContent = labels[status] || `Filtered: ${status}`;
+
+  const filtered = status ? allJobs.filter(j => matchFilter(j, status)) : allJobs;
+  renderPipeline(filtered);
+  updateResetVisibility();
+}
+
+function renderPipeline(jobs) {
+  const list = document.getElementById('pipelineList');
+  if (!jobs.length) {
+    // First-run onboarding: no jobs at all (vs. just an empty filter/period)
+    if (!activeFilter && !allJobs.length) {
+      list.innerHTML = `
+        <div style="text-align:center;padding:48px 24px;color:var(--text-muted)">
+          <div style="font-size:42px;margin-bottom:14px">🚀</div>
+          <h3 style="color:var(--text);font-size:16px;margin-bottom:8px">Start your first content batch</h3>
+          <p style="font-size:13px;max-width:420px;margin:0 auto 18px;line-height:1.7">
+            1. Upload a blog calendar spreadsheet &nbsp;·&nbsp; 2. Pick the blog &amp; rows
+            &nbsp;·&nbsp; 3. Claude writes each article and saves it as a WordPress draft
+          </p>
+          <a href="/upload" class="btn btn-primary">📤 Upload Spreadsheet</a>
+          <div style="margin-top:12px;font-size:12px">or try the period filter — current view: last ${document.getElementById('daysFilter')?.value === '0' ? 'all time' : (document.getElementById('daysFilter')?.value || 7) + ' days'}</div>
+        </div>`;
+      return;
+    }
+    list.innerHTML = `
+      <div style="text-align:center;padding:40px;color:var(--text-muted)">
+        ${activeFilter ? `No ${activeFilter} jobs in this period.` : 'No jobs in the selected period. Try <b>All time</b> or <a href="/upload" style="color:var(--primary)">upload a new spreadsheet</a>.'}
+      </div>`;
+    return;
+  }
+  list.innerHTML = jobs.map(j => renderJobRow(j)).join('');
+}
+
+function renderJobRow(j) {
+  const statusIcons = { pending:'⏳', generating:'⚡', posting:'📤', drafted:'✅', error:'❌', skipped:'⏭', paused:'⏸' };
+  const stageLabelTxt = { pending:'Pending', generating:'Generating AI Content', posting:'Posting to WordPress', drafted:'Drafted', error:'Error', skipped:'Skipped', paused:'Paused' };
+  // Usage-limit auto-resume: pending job rescheduled to the limit reset time
+  const isLimitWait = j.status === 'pending' && /auto-resuming/i.test(j.error_message || '');
+  const icon = isLimitWait ? '⏳' : (statusIcons[j.status] || '•');
+  const label = isLimitWait
+    ? `Waiting for limit reset · resumes ${formatDateShort(j.scheduled_at)} ${String(j.scheduled_at || '').slice(11, 16)}`
+    : (stageLabelTxt[j.status] || j.status);
+  const isActive = ['generating','posting'].includes(j.status);
+
+  const scheduledDate = formatDateShort(j.scheduled_at);
+  const keyword = j.primary_keyword ? `<span>🔑 ${j.primary_keyword}</span>` : '';
+  const elapsedHtml = isActive
+    ? `<span class="elapsed-timer" data-since="${j.updated_at}">⏱ …</span>`
+    : '';
+
+  return `
+    <div class="pipeline-row status-${j.status}" id="row-${j.id}" data-id="${j.id}" data-updated="${j.updated_at}">
+      <div class="row-top">
+        <div class="row-num">#${j.row_number}</div>
+        <div class="row-body">
+          <div class="row-title" title="${escHtml(j.generated_title || j.title)}">${escHtml(j.generated_title || j.title)}</div>
+          <div class="row-meta">
+            <span class="stage-label stage-${j.status}">${icon} ${label}</span>
+            <span>📅 ${scheduledDate}</span>
+            ${keyword}
+            ${elapsedHtml}
+            ${j.wp_post_id ? `<span>📝 WP #${j.wp_post_id}</span>` : ''}
+            ${j.additional_instructions ? `<span style="color:var(--warning)" title="${escHtml(j.additional_instructions)}">📋 Custom instructions</span>` : ''}
+            ${j.retry_count > 0 ? `<span>↺ Retry ${j.retry_count}</span>` : ''}
+          </div>
+          ${j.error_message && !isLimitWait ? `<div class="text-small" style="color:var(--danger);margin-top:4px;font-size:11.5px">⚠ ${escHtml(j.error_message).substring(0,120)}${j.error_message.length>120?'...':''}</div>` : ''}
+        </div>
+        <div class="row-actions">${rowActions(j)}</div>
+      </div>
+      ${isActive ? '<div class="progress-bar-wrap"><div class="progress-bar-fill"></div></div>' : ''}
+    </div>`;
+}
+
+function rowActions(j) {
+  const id = j.id;
+  const active = ['generating','posting'].includes(j.status);
+  const btns = [];
+
+  // ── View / Edit ──
+  btns.push(`<button class="btn btn-secondary btn-sm" onclick="showTimeline('${id}')" title="View timeline logs">📋</button>`);
+  if (!active && ['pending','error','paused'].includes(j.status))
+    btns.push(`<button class="btn btn-secondary btn-sm" onclick="editJob('${id}')" title="Edit title / keyword">✏️</button>`);
+  if (j.generated_content)
+    btns.push(`<button class="btn btn-secondary btn-sm" onclick="showPreview('${id}')">👁</button>`);
+  if (j.wp_post_url && safeUrl(j.wp_post_url))
+    btns.push(`<a href="${safeUrl(j.wp_post_url)}" target="_blank" rel="noopener" class="btn btn-success btn-sm" title="Open WP draft" aria-label="Open WP draft"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>`);
+
+  // ── Start / Pause ──
+  if (!active) {
+    if (j.status === 'paused') {
+      btns.push(`<button class="btn btn-primary btn-sm" onclick="processJobNow('${id}')" title="Start now">▶ Start</button>`);
+    } else if (j.status === 'pending') {
+      btns.push(`<button class="btn btn-primary btn-sm" onclick="processJobNow('${id}')" title="Run now">▶ Start</button>`);
+      btns.push(`<button class="btn btn-secondary btn-sm" onclick="pauseJob('${id}')" title="Pause">⏸</button>`);
+    } else if (['error','skipped'].includes(j.status)) {
+      btns.push(`<button class="btn btn-primary btn-sm" onclick="processJobNow('${id}')" title="Run now">▶ Start</button>`);
+    }
+  }
+
+  // ── Smart retry actions based on state ──
+  if (!active) {
+    // Error with content → offer retry post (skip regeneration)
+    if (j.status === 'error' && j.generated_content) {
+      btns.push(`<button class="btn btn-info btn-sm" onclick="retryPostJob('${id}')" title="Content already generated — retry WordPress posting only">📤 Retry Post</button>`);
+    }
+    // Drafted → offer regenerate content (keep WP post, just refresh content)
+    if (j.status === 'drafted') {
+      btns.push(`<button class="btn btn-secondary btn-sm" onclick="regenerateJob('${id}')" title="Keep WP post, regenerate content only">↺ Regen</button>`);
+    }
+    // Restart (clears everything)
+    btns.push(`<button class="btn btn-warning btn-sm" onclick="restartJob('${id}')" title="Clear all content & logs, restart from scratch">↺ Restart</button>`);
+  }
+
+  // ── Delete ──
+  if (!active)
+    btns.push(`<button class="btn btn-danger btn-sm" onclick="deleteJob('${id}')" title="Delete job and all logs permanently">🗑</button>`);
+
+  return btns.join('');
+}
+
+// ── Stats ──
+function updateStats(stats) {
+  document.getElementById('sc-total').textContent   = stats.total || 0;
+  document.getElementById('sc-pending').textContent = stats.pending || 0;
+  document.getElementById('sc-inprogress').textContent = (stats.generating||0) + (stats.posting||0);
+  document.getElementById('sc-drafted').textContent = stats.drafted || 0;
+  document.getElementById('sc-error').textContent   = stats.error || 0;
+  document.getElementById('sc-paused').textContent  = stats.paused || 0;
+}
+
+// ── Queue controls ──
+async function toggleQueue() {
+  const action = queuePaused ? 'resume' : 'pause';
+  const data = await API.post(`/api/queue/${action}`);
+  if (data) { queuePaused = data.paused; updatePauseBtn(); }
+}
+function updatePauseBtn() {
+  const btn = document.getElementById('btnPauseResume');
+  btn.textContent = queuePaused ? '▶ Resume All' : '⏸ Pause All';
+  btn.className = `btn btn-sm ${queuePaused ? 'btn-success' : 'btn-secondary'}`;
+}
+async function toggleTestMode() {
+  const newVal = !testMode;
+  const data = await API.post('/api/queue/test-mode', { enabled: newVal });
+  if (data?.ok) { testMode = data.testMode; updateTestModeBtn(); }
+}
+function updateTestModeBtn() {
+  const btn = document.getElementById('btnTestMode');
+  if (!btn) return;
+  btn.textContent = `🧪 Test Mode: ${testMode ? 'ON' : 'OFF'}`;
+  btn.className = `btn btn-sm ${testMode ? 'btn-warning' : 'btn-secondary'}`;
+  btn.title = testMode
+    ? 'TEST MODE ON — generation uses instant mock content, no API calls'
+    : 'Test mode OFF — generation calls Claude API (uses tokens)';
+}
+async function processNext() {
+  const data = await API.post('/api/queue/process-next');
+  if (data?.error) showToast(data.error, 'warning');
+  else if (data?.ok) showToast('Processing next job...', 'success');
+}
+
+// ── Job actions ──
+async function retryJob(id) {
+  await API.post(`/api/jobs/${id}/retry`);
+  await loadJobs();
+}
+async function skipJob(id) {
+  if (!confirm('Skip this job? It will be marked as Skipped.')) return;
+  await API.post(`/api/jobs/${id}/skip`);
+  await loadJobs();
+}
+async function pauseJob(id) {
+  await API.post(`/api/jobs/${id}/pause`);
+  await loadJobs();
+}
+async function resumeJob(id) {
+  await API.post(`/api/jobs/${id}/resume`);
+  await loadJobs();
+}
+async function processJobNow(id) {
+  const data = await API.post(`/api/jobs/${id}/process-now`);
+  if (data?.ok) showToast('Job started!', 'success');
+  else if (data?.error) showToast(data.error, 'warning');
+}
+// ── Edit job ──
+async function editJob(id) {
+  const data = await API.get(`/api/jobs/${id}`);
+  if (!data) return;
+  const j = data.job;
+  document.getElementById('editJobId').value = id;
+  document.getElementById('editTitle').value = j.title || '';
+  document.getElementById('editKeyword').value = j.primary_keyword || '';
+  const raw = JSON.parse(j.raw_data || '{}');
+  document.getElementById('editSecondary').value = Array.isArray(raw.secondary_keywords) ? raw.secondary_keywords.join(', ') : (raw.secondary_keywords || '');
+  document.getElementById('editInstructions').value = j.additional_instructions || '';
+  document.getElementById('editJobModal').classList.remove('hidden');
+}
+function closeEditJob() { document.getElementById('editJobModal').classList.add('hidden'); }
+async function saveEditJob() {
+  const id = document.getElementById('editJobId').value;
+  const data = await API.put(`/api/jobs/${id}`, {
+    title: document.getElementById('editTitle').value.trim(),
+    primary_keyword: document.getElementById('editKeyword').value.trim(),
+    secondary_keywords: document.getElementById('editSecondary').value,
+    additional_instructions: document.getElementById('editInstructions').value.trim(),
+  });
+  if (data?.ok) { closeEditJob(); showToast('Job updated', 'success'); await loadJobs(); }
+  else showToast(data?.error || 'Failed', 'warning');
+}
+
+async function retryPostJob(id) {
+  const data = await API.post(`/api/jobs/${id}/retry-post`);
+  if (data?.error) showToast(data.error, 'warning');
+  else showToast('Retrying WordPress post with existing content…', 'success');
+}
+async function regenerateJob(id) {
+  if (!confirm('Regenerate content for this job?\n\nThis will:\n• Clear the generated content\n• Keep the existing WordPress post\n• Re-run content generation then update the WP draft\n\nThe original post will be updated, not duplicated.')) return;
+  const data = await API.post(`/api/jobs/${id}/regenerate`);
+  if (data?.error) showToast(data.error, 'warning');
+  else { showToast('Content cleared — start the job to regenerate', 'success'); await loadJobs(); }
+}
+async function restartJob(id) {
+  if (!confirm('Restart this job?\n\nThis will permanently clear:\n• All generated content\n• WordPress post data\n• All activity logs\n\nThe job will be reset to pending and run fresh.')) return;
+  const data = await API.post(`/api/jobs/${id}/restart`);
+  if (data?.error) showToast(data.error, 'warning');
+  else { showToast('Job restarted — cleared and ready to run fresh', 'success'); await loadJobs(); }
+}
+async function deleteJob(id) {
+  if (!confirm('Delete this job permanently?\n\nThis will remove:\n• The job itself\n• All generated content\n• All activity logs\n\nThis cannot be undone.')) return;
+  const data = await API.delete(`/api/jobs/${id}`);
+  if (data?.error) showToast(data.error, 'warning');
+  else { showToast('Job deleted', 'info'); await loadJobs(); }
+}
+async function bulkAction(action) {
+  const data = await API.post('/api/queue/bulk', { action });
+  if (data?.ok) { await loadJobs(); showToast(data.message, 'success'); }
+}
+
+// Sanitize generated HTML before injecting into the preview modal.
+// The body is meant to render as HTML, so we keep formatting tags but strip
+// script-capable nodes, inline event handlers, and dangerous URL schemes.
+// (Content comes from the LLM, which echoes user-supplied spreadsheet fields.)
+function sanitizePreviewHtml(html) {
+  if (!html) return '';
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(html);
+  const BANNED = ['script','iframe','object','embed','link','style','meta','base','form'];
+  tpl.content.querySelectorAll(BANNED.join(',')).forEach(el => el.remove());
+  tpl.content.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(attr => {
+      const name = attr.name.toLowerCase();
+      const val = (attr.value || '').trim();
+      if (name.startsWith('on')) el.removeAttribute(attr.name);                         // inline handlers
+      else if ((name === 'href' || name === 'src' || name === 'xlink:href')             // dangerous schemes
+        && /^\s*(javascript|data|vbscript):/i.test(val)) el.removeAttribute(attr.name);
+    });
+  });
+  return tpl.innerHTML;
+}
+
+// Render the predicted Rank Math SEO score panel
+function renderSeoScore(seo) {
+  const el = document.getElementById('pvSeo');
+  if (!el) return;
+  if (!seo) {
+    el.innerHTML = '<span class="text-muted" style="font-size:12px">No content generated yet — score unavailable.</span>';
+    return;
+  }
+  const icon = { true: 'pass', partial: 'partial', false: 'fail' };
+  const mark = { true: '✓', partial: '!', false: '✕' };
+  const checks = (seo.checks || []).map(c => {
+    const k = String(c.passed);
+    return `<div class="seo-check">
+      <span class="ic ${icon[k] || 'fail'}">${mark[k] || '✕'}</span>
+      <span><span class="lbl">${escHtml(c.label)}</span><span class="det">${escHtml(c.detail || '')}</span></span>
+    </div>`;
+  }).join('');
+
+  // Conic gauge ring filled proportionally to the score
+  const ring = `conic-gradient(${seo.color} ${seo.score * 3.6}deg, var(--border) 0deg)`;
+  el.innerHTML = `
+    <div class="seo-gauge">
+      <div class="seo-ring" style="background:${ring}">
+        <div class="seo-ring-inner">
+          <span class="seo-ring-score" style="color:${seo.color}">${seo.score}</span>
+          <span class="seo-ring-max">/ 100</span>
+        </div>
+      </div>
+      <div class="seo-grade" style="color:${seo.color}">${escHtml(seo.grade)}</div>
+      <div class="seo-stats">${seo.wordCount} words<br>${seo.keywordDensity}% density<br>${seo.internalLinks} int · ${seo.externalLinks} ext links</div>
+    </div>
+    <div class="seo-checks">${checks}</div>`;
+}
+
+// ── Preview modal ──
+async function showPreview(id) {
+  const data = await API.get(`/api/jobs/${id}/preview`);
+  if (!data) return;
+  renderSeoScore(data.seo);
+  document.getElementById('pvTitle').textContent = data.title || '';
+  document.getElementById('pvMeta').textContent = data.meta_description || '—';
+  document.getElementById('pvTags').innerHTML = (data.tags||[]).map(t =>
+    `<span class="badge badge-pending" style="margin-right:4px;margin-bottom:4px">${escHtml(t)}</span>`).join('');
+  document.getElementById('pvContent').innerHTML = sanitizePreviewHtml(data.content) || '<p style="color:var(--text-muted)">No content yet.</p>';
+  document.getElementById('pvImagePrompt').textContent = data.image_prompt || '—';
+  const srcLabel = { pexels: 'Pexels', unsplash: 'Unsplash', svg: 'SVG Fallback' }[data.image_source] || data.image_source;
+  document.getElementById('pvImageSource').innerHTML = srcLabel
+    ? `<span class="badge" style="font-size:11px;background:var(--surface2);color:var(--text-muted);border:1px solid var(--border)">Image: ${escHtml(srcLabel)}</span>`
+    : '';
+  document.getElementById('pvWpLink').innerHTML = safeUrl(data.wp_post_url)
+    ? `<a href="${safeUrl(data.wp_post_url)}" target="_blank" rel="noopener" class="btn btn-success btn-sm"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>View/Edit Draft in WordPress</a>`
+    : '';
+  document.getElementById('previewModal').classList.remove('hidden');
+}
+function closePreview() { document.getElementById('previewModal').classList.add('hidden'); }
+
+// ── Timeline modal ──
+async function showTimeline(id) {
+  const data = await API.get(`/api/jobs/${id}`);
+  if (!data) return;
+  const j = data.job;
+  const logs = data.logs || [];
+
+  const statusIcons = { pending:'⏳', generating:'⚡', posting:'📤', drafted:'✅', error:'❌', skipped:'⏭', paused:'⏸' };
+  document.getElementById('tlJobTitle').textContent = j.generated_title || j.title;
+  document.getElementById('tlJobMeta').textContent =
+    `${statusIcons[j.status] || '•'} ${j.status.toUpperCase()}  ·  Row #${j.row_number}  ·  ${j.primary_keyword || ''}`;
+
+  const levelIcons = { info: 'ℹ', success: '✓', warning: '⚠', error: '✕' };
+
+  // Sort chronologically (oldest first)
+  const sorted = [...logs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  document.getElementById('tlBody').innerHTML = sorted.length
+    ? sorted.map(l => `
+        <div class="tl-item">
+          <div class="tl-icon ${l.level}">${levelIcons[l.level] || '•'}</div>
+          <div class="tl-body">
+            <div class="tl-msg">${escHtml(l.message)}</div>
+            <div class="tl-time">${fmtTime(l.created_at)}</div>
+          </div>
+        </div>`).join('')
+    : '<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No activity logged yet for this job.</div>';
+
+  document.getElementById('timelineModal').classList.remove('hidden');
+}
+function closeTimeline() { document.getElementById('timelineModal').classList.add('hidden'); }
+
+// ── Activity log ──
+async function loadLogs() {
+  const data = await API.get('/api/logs?limit=100');
+  if (!data) return;
+  renderLogs(data.logs);
+}
+function renderLogs(logs) {
+  const feed = document.getElementById('logFeed');
+  if (!logs.length) { feed.innerHTML = '<div class="text-muted text-small" style="text-align:center;padding:20px">No activity yet</div>'; return; }
+  feed.innerHTML = logs.map(l => `
+    <div class="log-entry">
+      <span class="log-time">${fmtTime(l.created_at)}</span>
+      <span class="log-dot ${l.level}"></span>
+      <span class="log-msg">${escHtml(l.message)}</span>
+    </div>`).join('');
+}
+function prependLog(log) {
+  const feed = document.getElementById('logFeed');
+  const empty = feed.querySelector('[style*="text-align:center"]');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML = `<span class="log-time">${fmtTime(log.created_at)}</span><span class="log-dot ${log.level}"></span><span class="log-msg">${escHtml(log.message)}</span>`;
+  feed.insertBefore(div, feed.firstChild);
+  while (feed.children.length > 100) feed.lastChild.remove();
+}
+
+// ── Banner ──
+function showActiveBanner(msg) {
+  document.getElementById('activeBanner').classList.remove('hidden');
+  document.getElementById('activeBannerMsg').textContent = msg;
+}
+function hideActiveBanner() { document.getElementById('activeBanner').classList.add('hidden'); }
+
+// ── Socket.io ──
+socket.on('job:created', () => loadJobs());
+socket.on('batch:complete', (batch) => {
+  const msg = `✅ Batch complete: "${batch.upload_name}" — ${batch.drafted} drafted${batch.errors ? ', ' + batch.errors + ' errors' : ''}`;
+  showToast(msg, batch.errors ? 'warning' : 'success');
+  // Browser notification if tab is not active
+  if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+    new Notification('CT Automation — Batch Complete', { body: msg, icon: '/assets/img/icon.png' });
+  }
+  loadJobs();
+});
+socket.on('job:deleted', ({ id }) => {
+  document.getElementById(`row-${id}`)?.remove();
+  allJobs = allJobs.filter(j => j.id !== id);
+});
+socket.on('job:updated', (job) => {
+  // When scoped to a domain, ignore live updates for jobs in other blogs
+  if (activeBlogFilter && job.blog_id != null && String(job.blog_id) !== String(activeBlogFilter)) return;
+  // Update single row in place
+  const existing = document.getElementById(`row-${job.id}`);
+  if (existing) {
+    existing.outerHTML = renderJobRow(job);
+  } else {
+    loadJobs();
+  }
+  // Update allJobs cache
+  const idx = allJobs.findIndex(j => j.id === job.id);
+  if (idx >= 0) allJobs[idx] = job; else allJobs.unshift(job);
+
+  if (['generating','posting'].includes(job.status)) {
+    showActiveBanner(`${job.status === 'generating' ? '⚡ Generating' : '📤 Posting'}: ${job.title.substring(0,60)}...`);
+  } else {
+    const stillActive = allJobs.some(j => ['generating','posting'].includes(j.status));
+    if (!stillActive) hideActiveBanner();
+  }
+
+  // Refresh analytics shortly after a job finishes generating/posting
+  if (['drafted','error','posting'].includes(job.status)) scheduleAnalyticsRefresh();
+});
+socket.on('log:new', (log) => prependLog(log));
+socket.on('stats:update', (stats) => updateStats(stats));
+socket.on('queue:state', (state) => {
+  queuePaused = state.paused; updatePauseBtn();
+  testMode = !!state.testMode; updateTestModeBtn();
+});
+
+// ── Helpers ──
+// fmtTime, escHtml, showToast — defined in common.js
+
+// Elapsed timer — ticks every second for active rows
+function tickElapsed() {
+  // Skip the per-second DOM work entirely when no active rows have a timer
+  if (!document.querySelector('.elapsed-timer')) return;
+  document.querySelectorAll('.elapsed-timer').forEach(el => {
+    const since = el.dataset.since;
+    if (!since) return;
+    const secs = Math.floor((Date.now() - new Date(since + (since.endsWith('Z') ? '' : 'Z')).getTime()) / 1000);
+    if (secs < 0) return;
+    const m = Math.floor(secs / 60), s = secs % 60;
+    el.textContent = `⏱ ${m}m ${s}s`;
+  });
+}
+setInterval(tickElapsed, 1000);
+</script>
+</body>
+</html>

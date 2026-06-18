@@ -10,9 +10,10 @@ SEO Machine is an open-source Claude Code workspace for creating SEO-optimized b
 
 ```bash
 pip install -r data_sources/requirements.txt
+cp .env.example data_sources/config/.env   # then fill in credentials
 ```
 
-API credentials are configured in `data_sources/config/.env` (GA4, GSC, DataForSEO, WordPress). GA4 service account credentials go in `credentials/ga4-credentials.json`.
+API credentials are loaded from `data_sources/config/.env` (GA4, GSC, DataForSEO, WordPress) — modules hardcode this relative path, which is why scripts must run from the repo root. GA4/GSC service account credentials go in `credentials/`. Competitor-aware scripts read `config/competitors.json` (copy from `config/competitors.example.json`).
 
 ## Commands
 
@@ -31,6 +32,8 @@ All commands are defined in `.claude/commands/` and invoked as slash commands:
 - `/research-serp`, `/research-gaps`, `/research-trending`, `/research-performance`, `/research-topics` - Specialized research commands
 - `/research-ai-citations [topic]` - AI citation audit: generates prompts, clusters them, audits which sources AI cites
 - `/repurpose [file]` - Adapts article for LinkedIn, Medium, Reddit, Quora distribution
+- `/scrub [file]` - Strips invisible AI watermark characters and AI-telltale punctuation/phrasing (backed by `content_scrubber.py`)
+- `/content-calendar [posts-per-week] [month]` - Generates a dated content calendar from existing research data
 - `/landing-write`, `/landing-audit`, `/landing-research`, `/landing-publish`, `/landing-competitor` - Landing page commands
 
 ## Architecture
@@ -39,7 +42,9 @@ All commands are defined in `.claude/commands/` and invoked as slash commands:
 
 **Commands** (`.claude/commands/`) orchestrate workflows. **Agents** (`.claude/agents/`) are specialized roles invoked by commands. After `/write`, these agents auto-run: SEO Optimizer, Meta Creator, Internal Linker, Keyword Mapper.
 
-Key agents: `content-analyzer.md`, `seo-optimizer.md`, `meta-creator.md`, `internal-linker.md`, `keyword-mapper.md`, `editor.md`, `headline-generator.md`, `cro-analyst.md`, `performance.md`, `cluster-strategist.md`.
+Key agents: `content-analyzer.md`, `seo-optimizer.md`, `meta-creator.md`, `internal-linker.md`, `keyword-mapper.md`, `editor.md`, `headline-generator.md`, `cro-analyst.md`, `performance.md`, `cluster-strategist.md`, `landing-page-optimizer.md`.
+
+`.claude/skills/` holds a separate library of general marketing skills (copywriting, page-cro, seo-audit, pricing-strategy, etc.) that are invokable across tasks and not tied to the SEO content pipeline.
 
 ### Python Analysis Pipeline
 
@@ -81,6 +86,17 @@ python3 seo_competitor_analysis.py
 python3 test_dataforseo.py
 ```
 
+All root-level scripts do `sys.path.insert(0, "data_sources")` and then `from modules.X import Y`, so they only resolve imports when run from the repo root.
+
+## Testing
+
+```bash
+python3 -m unittest discover -s tests        # run the suite (no API calls; deps are stubbed)
+python3 -m unittest tests.test_dataforseo_resilience   # run a single test module
+```
+
+Tests in `tests/` load target modules dynamically via `importlib` and stub out `dotenv`/network clients, so they run without credentials. (`test_dataforseo.py` at the root is a live connectivity check, not a unit test.)
+
 ## Content Pipeline
 
 `topics/` (ideas) → `research/` (briefs) → `drafts/` (articles) → `review-required/` (pending review) → `published/` (final)
@@ -103,3 +119,39 @@ Rewrites go to `rewrites/`. Landing pages go to `landing-pages/`. Audits go to `
 ## WordPress Integration
 
 Publishing uses the WordPress REST API with a custom MU-plugin (`wordpress/seo-machine-yoast-rest.php`) that exposes Yoast SEO fields. Articles are published in WordPress block format (HTML comments in Markdown files).
+
+---
+
+## Fork addition: ct-automation Web App Overlay (`app/`)
+
+> This section documents our fork's customization. Everything above this line is upstream
+> (`TheCraigHewitt/seomachine`) and is kept untouched so `git pull upstream` stays conflict-free.
+
+`app/` contains a **Node.js/Express web app** (the ct-automation product shell: UI, SQLite job
+queue, Socket.io, multi-blog support, spreadsheet intake, WordPress posting, image service, SEO
+scoring). It is a **subdirectory overlay** — it does not exist in `upstream/main`, so upstream
+merges never conflict with it. See `app/CLAUDE.md` for the app's full internals.
+
+**Two generation engines, switchable from the UI** (Claude Setup page → 🧩 Generation Engine):
+- **`native`** — the app's built-in 2-call Claude pipeline (default).
+- **`seomachine`** — drives THIS repo's methodology: it reads the **live** `.claude/commands/write.md`
+  + the app's per-blog brand context, generates via the Claude CLI, then runs this repo's Python
+  quality gate (`data_sources/modules/content_scrubber.py` + `content_scorer.py`). Because it reads
+  these files live, upstream improvements to the methodology and the Python modules flow straight in.
+
+Bridge code (all under `app/`): `src/services/seomachineService.js` (prompt build + root resolution),
+`src/services/claudeService.js` (`generateViaSeomachine`, engine dispatch via `getActiveEngine()`),
+`src/services/pythonGate.js` + `scripts/seomachine_quality_gate.py` (the scrub+score gate). Engine
+setting persists in `queue_state.generation_engine` (env `GENERATION_ENGINE` is the fallback).
+
+### Keeping in sync with upstream
+
+```bash
+git fetch upstream
+git merge upstream/main        # only touches root files; app/ is ours → conflict-free by design
+```
+
+Run from the repo root. The app's runtime artifacts (`app/node_modules`, `app/data`, `app/.env`,
+`app/uploads`) are gitignored. Python deps for the quality gate: `pip install textstat` (only
+`textstat` is required by `content_scorer.py`; the full `data_sources/requirements.txt` is only
+needed for the analytics scripts).

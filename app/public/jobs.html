@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <script>if(localStorage.getItem("ct-theme")==="light")document.documentElement.setAttribute("data-theme","light")</script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jobs — CT Automation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <style>
+    /* ── Status badges ── */
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 9px; border-radius: 20px;
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
+      white-space: nowrap;
+    }
+    .badge-pending    { background: rgba(100,116,139,.15); color: #94a3b8; }
+    .badge-generating { background: rgba(99,102,241,.18);  color: #818cf8; }
+    .badge-posting    { background: rgba(59,130,246,.15);  color: #60a5fa; }
+    .badge-drafted    { background: rgba(34,197,94,.15);   color: #4ade80; }
+    .badge-error      { background: rgba(239,68,68,.15);   color: #f87171; }
+    .badge-paused     { background: rgba(245,158,11,.15);  color: #fbbf24; }
+    .badge-skipped    { background: rgba(71,85,105,.15);   color: #64748b; }
+
+    /* ── Filter tabs ── */
+    .filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+    .filter-tab {
+      padding: 5px 14px; border-radius: 20px; border: 1px solid var(--border);
+      font-size: 12px; font-weight: 500; cursor: pointer; background: var(--surface);
+      color: var(--text-muted); transition: all .15s;
+    }
+    .filter-tab:hover  { border-color: var(--primary); color: var(--text); }
+    .filter-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .filter-tab .cnt   { font-weight: 700; }
+
+    /* ── Upload group header ── */
+    .upload-group { margin-bottom: 28px; }
+    .upload-header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 14px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 8px 8px 0 0;
+      border-bottom: 2px solid var(--primary);
+    }
+    .upload-header .uh-name { font-weight: 600; font-size: 13.5px; }
+    .upload-header .uh-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 14px; }
+    .upload-header .uh-badges { display: flex; gap: 5px; margin-left: auto; flex-wrap: wrap; }
+    .uh-stat { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; }
+
+    /* ── Table ── */
+    .jobs-table { width: 100%; border-collapse: collapse; }
+    .jobs-table th {
+      padding: 9px 12px; text-align: left; font-size: 11px; font-weight: 600;
+      color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .jobs-table td {
+      padding: 10px 12px; font-size: 13px; border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .jobs-table tr.job-row { cursor: pointer; transition: background .1s; }
+    .jobs-table tr.job-row:hover td { background: rgba(99,102,241,.04); }
+    .jobs-table tr.job-row.log-open td { background: rgba(99,102,241,.06); }
+    .jobs-table tr.job-row td:first-child { color: var(--text-muted); font-size: 11px; width: 36px; }
+
+    /* ── Title cell ── */
+    .cell-title { max-width: 280px; }
+    .cell-title .t-main { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+    .cell-title .t-sub  { font-size: 11px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+    .cell-title .t-subrow { display: flex; align-items: center; gap: 8px; margin-top: 3px; flex-wrap: wrap; }
+    .seo-chip { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px; white-space: nowrap; letter-spacing: .3px; cursor: default; }
+
+    /* ── Inline log row ── */
+    .log-panel-row { display: none; }
+    .log-panel-row.open { display: table-row; }
+    .log-panel-cell {
+      padding: 0; border-bottom: 2px solid var(--primary);
+      background: var(--bg);
+    }
+    .log-panel-inner {
+      padding: 14px 16px; max-height: 320px; overflow-y: auto;
+    }
+    .tl-item { display: flex; gap: 12px; padding: 7px 0; position: relative; }
+    .tl-item:not(:last-child)::before {
+      content: ''; position: absolute; left: 15px; top: 28px; bottom: -2px;
+      width: 2px; background: var(--border);
+    }
+    .tl-dot {
+      width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center;
+      justify-content: center; font-size: 12px; flex-shrink: 0;
+    }
+    .tl-dot.info    { background: rgba(59,130,246,.15); color: #60a5fa; }
+    .tl-dot.success { background: rgba(34,197,94,.15);  color: #4ade80; }
+    .tl-dot.warning { background: rgba(245,158,11,.15); color: #fbbf24; }
+    .tl-dot.error   { background: rgba(239,68,68,.15);  color: #f87171; }
+    .tl-body { flex: 1; min-width: 0; }
+    .tl-msg  { font-size: 12.5px; color: var(--text); line-height: 1.5; }
+    .tl-time { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+    .log-empty { font-size: 12px; color: var(--text-muted); padding: 8px 0; }
+
+    /* ── Action buttons ── */
+    .action-group { display: flex; gap: 5px; flex-wrap: wrap; }
+
+    /* ── Progress bar on active rows ── */
+    .progress-mini { height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; margin-top: 4px; }
+    .progress-mini-fill {
+      height: 100%; border-radius: 1px;
+      background: linear-gradient(90deg, var(--primary), #a78bfa);
+      animation: progress-pulse 1.5s ease-in-out infinite;
+      width: 60%;
+    }
+    @keyframes progress-pulse {
+      0%,100% { width: 40%; margin-left: 0; }
+      50% { width: 60%; margin-left: 20%; }
+    }
+
+    /* elapsed */
+    .elapsed { color: var(--primary); font-weight: 600; font-size: 11px; font-variant-numeric: tabular-nums; }
+
+    /* ── Empty state ── */
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+    .empty-state .es-icon { font-size: 40px; margin-bottom: 12px; }
+    .empty-state h3 { font-size: 16px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+  </style>
+</head>
+<body>
+<div class="app-layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand"><div class="logo">⚡ CT Automation</div><div class="sub">Content Auto-Draft Tool</div></div>
+    <nav class="sidebar-nav">
+      <a href="/dashboard" class="nav-item"><span class="icon">📊</span> Dashboard</a>
+      <a href="/jobs"      class="nav-item active"><span class="icon">📋</span> All Jobs</a>
+      <a href="/upload"    class="nav-item"><span class="icon">📤</span> Upload Spreadsheet</a>
+      <a href="/settings"  class="nav-item"><span class="icon">⚙️</span> Blog Settings</a>
+      <a href="/claude-setup" class="nav-item"><span class="icon">🤖</span> Claude Setup</a>
+      <a href="/pitch-demo"  class="nav-item"><span class="icon">🎬</span> Product Demo</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="avatar" id="avatarInitial">A</div>
+        <div><div id="sidebarUsername" style="font-size:13px;font-weight:500">Admin</div><div class="text-muted text-small">Administrator</div></div>
+      </div>
+      <button class="nav-item" onclick="logout()" style="color:var(--danger)"><span class="icon">🚪</span> Logout</button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+
+    <!-- Header -->
+    <div class="flex-between" style="margin-bottom:20px">
+      <div>
+        <h1 style="font-size:20px;font-weight:600">All Jobs</h1>
+        <p class="text-muted text-small">Uploaded items grouped by batch — click any row to view logs</p>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-secondary btn-sm" onclick="load()">↻ Refresh</button>
+        <a href="/upload" class="btn btn-primary btn-sm">+ Upload Sheet</a>
+      </div>
+    </div>
+
+    <!-- Bulk action toolbar (shown when items are selected) -->
+    <div id="bulkBar" class="hidden" style="display:none;align-items:center;gap:8px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:8px;padding:10px 16px;margin-bottom:14px;font-size:13px;flex-wrap:wrap">
+      <span id="bulkCount" style="font-weight:600;color:var(--primary);margin-right:4px">0 selected</span>
+      <button class="btn btn-info btn-sm" onclick="bulkRetryPost()" title="Retry WP posting for jobs that have content but failed at posting">📤 Retry Post</button>
+      <button class="btn btn-warning btn-sm" onclick="bulkRestart()" title="Clear everything and restart from scratch">↺ Restart</button>
+      <button class="btn btn-danger btn-sm" onclick="bulkDelete()">🗑 Delete</button>
+      <button class="btn btn-secondary btn-sm" onclick="clearSelection()">✕ Clear</button>
+    </div>
+
+    <!-- Blog/domain filter + search -->
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+      <div id="blogFilterWrap" style="display:none;gap:8px;align-items:center">
+        <select id="blogFilterSel" class="form-control" style="width:220px;padding:5px 10px;font-size:13px"
+          onchange="filterByBlog(this.value)">
+          <option value="">All domains</option>
+        </select>
+        <button id="btnResetBlog" class="btn btn-secondary btn-sm" onclick="resetBlogFilter()" style="display:none" title="Show all domains">↺ Reset</button>
+      </div>
+      <input id="jobSearch" class="form-control" type="search" placeholder="🔎 Search title or keyword…"
+        style="width:260px;padding:5px 10px;font-size:13px" oninput="onSearch(this.value)">
+    </div>
+
+    <!-- Filter tabs -->
+    <div class="filter-tabs" id="filterTabs">
+      <button class="filter-tab active" data-filter="" onclick="setFilter(this,'')">
+        All <span class="cnt" id="cnt-all">0</span>
+      </button>
+      <button class="filter-tab" data-filter="pending"    onclick="setFilter(this,'pending')">
+        ⏳ Pending <span class="cnt" id="cnt-pending">0</span>
+      </button>
+      <button class="filter-tab" data-filter="generating" onclick="setFilter(this,'generating')">
+        ⚡ Generating <span class="cnt" id="cnt-generating">0</span>
+      </button>
+      <button class="filter-tab" data-filter="posting"    onclick="setFilter(this,'posting')">
+        📤 Posting <span class="cnt" id="cnt-posting">0</span>
+      </button>
+      <button class="filter-tab" data-filter="drafted"    onclick="setFilter(this,'drafted')">
+        ✅ Drafted <span class="cnt" id="cnt-drafted">0</span>
+      </button>
+      <button class="filter-tab" data-filter="error"      onclick="setFilter(this,'error')">
+        ❌ Error <span class="cnt" id="cnt-error">0</span>
+      </button>
+      <button class="filter-tab" data-filter="paused"     onclick="setFilter(this,'paused')">
+        ⏸ Paused <span class="cnt" id="cnt-paused">0</span>
+      </button>
+      <button class="filter-tab" data-filter="skipped"    onclick="setFilter(this,'skipped')">
+        ⏭ Skipped <span class="cnt" id="cnt-skipped">0</span>
+      </button>
+    </div>
+
+    <!-- Upload groups -->
+    <div id="jobsContainer">
+      <div class="skeleton" style="height:52px;margin-bottom:10px"></div>
+      <div class="skeleton" style="height:160px;margin-bottom:24px"></div>
+      <div class="skeleton" style="height:52px;margin-bottom:10px"></div>
+      <div class="skeleton" style="height:120px"></div>
+    </div>
+
+  </main>
+</div>
+
+<div id="feedbackModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:560px">
+    <button class="modal-close" onclick="closeFeedback()">✕</button>
+    <h2 style="font-size:16px;margin-bottom:6px">💬 Feedback for the AI</h2>
+    <p class="text-muted text-small" style="margin-bottom:16px">
+      Tell the AI what to improve or keep. Your notes are saved for this blog and applied automatically
+      on every future generation, so the next posts get better.
+    </p>
+    <input type="hidden" id="feedbackJobId">
+
+    <div class="form-group">
+      <label class="form-label">Was this draft good overall?</label>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn btn-secondary btn-sm" id="fbRatingUp" onclick="setFbRating('up')">👍 Good</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="fbRatingDown" onclick="setFbRating('down')">👎 Needs work</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">What should the AI do differently next time?</label>
+      <textarea id="feedbackText" class="form-control" rows="4"
+        placeholder="e.g. Keep the intro under 3 sentences, add a comparison table, avoid the word 'leverage', use a more confident tone, include a stronger CTA…"></textarea>
+    </div>
+
+    <div id="existingFeedback" style="margin-bottom:8px"></div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+      <button class="btn btn-secondary" onclick="closeFeedback()">Cancel</button>
+      <button class="btn btn-primary" id="fbSubmitBtn" onclick="submitFeedback()">Save Feedback</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Job Modal -->
+<div id="jobEditModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:520px">
+    <button class="modal-close" onclick="closeJobEdit()">✕</button>
+    <h2 style="font-size:16px;margin-bottom:16px">✏️ Edit Job</h2>
+    <input type="hidden" id="jeId">
+    <div class="form-group">
+      <label class="form-label">Title</label>
+      <input type="text" id="jeTitle" class="form-control" placeholder="Article title">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Primary Keyword</label>
+      <input type="text" id="jeKeyword" class="form-control" placeholder="primary keyword">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Secondary Keywords <span class="text-muted text-small">(comma separated)</span></label>
+      <input type="text" id="jeSecondary" class="form-control" placeholder="keyword1, keyword2">
+    </div>
+    <div class="form-group">
+      <label class="form-label">
+        📝 Additional Instructions
+        <span class="text-muted text-small" style="font-weight:400">(for this post only)</span>
+      </label>
+      <textarea id="jeInstructions" class="form-control" rows="3"
+        placeholder="e.g. Focus on HIPAA compliance. Mention LogixHealth $192M case study. Include a comparison table."
+        style="resize:vertical;font-size:13px;line-height:1.6"></textarea>
+      <div class="form-hint">Highest-priority rules added to Claude's prompt for this post only.</div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+      <button class="btn btn-secondary" onclick="closeJobEdit()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveJobEdit()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/common.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+let allUploads = [];
+let activeFilter = '';
+let searchQuery = '';
+// Domain/blog filter — shared with the Dashboard and persisted across refresh
+const BLOG_FILTER_KEY = 'ct-blog-filter';
+let activeBlogFilter = localStorage.getItem(BLOG_FILTER_KEY) || '';
+let allBlogs = [];
+
+// Batch-group pagination — render at most N upload groups, then "Show more"
+const GROUPS_PAGE = 8;
+let groupsShown = GROUPS_PAGE;
+
+// Debounced reload — sockets fire many job:updated events during generation;
+// collapsing them into one reload every 500ms keeps the table stable.
+let _loadTimer = null;
+function scheduleLoad() {
+  clearTimeout(_loadTimer);
+  _loadTimer = setTimeout(load, 500);
+}
+
+function onSearch(v) {
+  searchQuery = String(v || '').trim().toLowerCase();
+  groupsShown = GROUPS_PAGE;
+  render();
+}
+
+// ── Init ──
+(async () => {
+  const me = await API.get('/api/auth/me');
+  if (!me || !me.loggedIn) { location.href = '/'; return; }
+  document.getElementById('sidebarUsername').textContent = me.username;
+  document.getElementById('avatarInitial').textContent = me.username[0].toUpperCase();
+  const cfg = await API.get('/api/configs');
+  allBlogs = cfg?.configs || [];
+  await load();
+})();
+
+async function load() {
+  const data = await API.get('/api/uploads/with-jobs');
+  if (!data) return;
+  allUploads = data.uploads;
+  buildBlogFilter();
+  render();
+  updateCounts();
+}
+
+function buildBlogFilter() {
+  const sel = document.getElementById('blogFilterSel');
+  if (!sel) return;
+  if (allBlogs.length <= 1) { document.getElementById('blogFilterWrap').style.display = 'none'; return; }
+  document.getElementById('blogFilterWrap').style.display = 'flex';
+  sel.innerHTML = `<option value="">All domains</option>` +
+    allBlogs.map(b => `<option value="${b.id}">${escHtml(b.name || b.domain || b.slug)}</option>`).join('');
+  // Drop a stale stored id that no longer exists
+  if (activeBlogFilter && !allBlogs.some(b => String(b.id) === String(activeBlogFilter))) {
+    activeBlogFilter = '';
+    localStorage.removeItem(BLOG_FILTER_KEY);
+  }
+  sel.value = activeBlogFilter;
+  updateBlogResetVisibility();
+}
+
+function filterByBlog(blogId) {
+  activeBlogFilter = blogId || '';
+  if (activeBlogFilter) localStorage.setItem(BLOG_FILTER_KEY, activeBlogFilter);
+  else localStorage.removeItem(BLOG_FILTER_KEY);
+  groupsShown = GROUPS_PAGE;
+  updateBlogResetVisibility();
+  render();
+  updateCounts();
+}
+
+function resetBlogFilter() {
+  activeBlogFilter = '';
+  localStorage.removeItem(BLOG_FILTER_KEY);
+  const sel = document.getElementById('blogFilterSel');
+  if (sel) sel.value = '';
+  groupsShown = GROUPS_PAGE;
+  updateBlogResetVisibility();
+  render();
+  updateCounts();
+}
+
+function updateBlogResetVisibility() {
+  const btn = document.getElementById('btnResetBlog');
+  if (btn) btn.style.display = activeBlogFilter ? '' : 'none';
+}
+
+// ── Filter ──
+function setFilter(el, filter) {
+  activeFilter = filter;
+  groupsShown = GROUPS_PAGE;
+  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  render();
+}
+
+// ── Count badges ──
+function updateCounts() {
+  const totals = {};
+  const scoped = activeBlogFilter
+    ? allUploads.filter(u => String(u.blog_id) === activeBlogFilter)
+    : allUploads;
+  for (const u of scoped)
+    for (const j of u.jobs)
+      totals[j.status] = (totals[j.status] || 0) + 1;
+
+  const total = Object.values(totals).reduce((a, b) => a + b, 0);
+  document.getElementById('cnt-all').textContent = total;
+  for (const [s, n] of Object.entries(totals)) {
+    const el = document.getElementById('cnt-' + s);
+    if (el) el.textContent = n;
+  }
+}
+
+// ── Render ──
+function render() {
+  const container = document.getElementById('jobsContainer');
+
+  // Preserve checkbox selections and the open log panel across re-renders
+  const selected = new Set(getSelectedIds());
+  const openLogId = document.querySelector('.log-panel-row.open')?.id?.replace('logs-', '') || null;
+
+  const filtered = activeBlogFilter ? allUploads.filter(u => String(u.blog_id) === activeBlogFilter) : allUploads;
+  const groups = filtered.map(u => renderGroup(u)).filter(Boolean);
+  const visible = groups.slice(0, groupsShown);
+  const hiddenCount = groups.length - visible.length;
+  const moreBtn = hiddenCount > 0
+    ? `<div style="text-align:center;margin:6px 0 26px">
+         <button class="btn btn-secondary" onclick="showMoreGroups()">⌄ Show ${Math.min(GROUPS_PAGE, hiddenCount)} more batch${Math.min(GROUPS_PAGE, hiddenCount) !== 1 ? 'es' : ''} (${hiddenCount} hidden)</button>
+       </div>`
+    : '';
+  const html = visible.join('') + moreBtn;
+  container.innerHTML = html || `
+    <div class="empty-state">
+      <div class="es-icon">📋</div>
+      <h3>No jobs match this filter</h3>
+      <p class="text-muted text-small">${searchQuery ? 'No titles or keywords match your search' : 'Try selecting a different status above'}</p>
+    </div>`;
+
+  // Restore selections
+  if (selected.size) {
+    document.querySelectorAll('.job-checkbox').forEach(cb => { if (selected.has(cb.dataset.id)) cb.checked = true; });
+    onCheckboxChange();
+  }
+  // Restore the open log panel
+  if (openLogId) {
+    const row = document.getElementById('row-' + openLogId);
+    const logRow = document.getElementById('logs-' + openLogId);
+    if (row && logRow) {
+      row.classList.add('log-open');
+      logRow.classList.add('open');
+      refreshInlineLogs(openLogId);
+    }
+  }
+
+  startElapsedTimers();
+}
+
+function showMoreGroups() {
+  groupsShown += GROUPS_PAGE;
+  render();
+}
+
+function matchesSearch(j) {
+  if (!searchQuery) return true;
+  return [j.generated_title, j.title, j.primary_keyword]
+    .some(v => v && String(v).toLowerCase().includes(searchQuery));
+}
+
+function renderGroup(upload) {
+  let jobs = activeFilter
+    ? upload.jobs.filter(j => j.status === activeFilter)
+    : upload.jobs;
+  jobs = jobs.filter(matchesSearch);
+  if (!jobs.length) return '';
+
+  const statColors = { pending:'#94a3b8', generating:'#818cf8', posting:'#60a5fa', drafted:'#4ade80', error:'#f87171', paused:'#fbbf24', skipped:'#64748b' };
+  const statLabels = { pending:'Pending', generating:'Generating', posting:'Posting', drafted:'Drafted', error:'Error', paused:'Paused', skipped:'Skipped' };
+
+  const statsHtml = Object.entries(upload.stats)
+    .filter(([,n]) => n > 0)
+    .map(([s, n]) => `<span class="uh-stat" style="color:${statColors[s] || 'var(--text-muted)'}"><span>${n}</span> ${statLabels[s] || s}</span>`)
+    .join('');
+
+  const tableRows = jobs.map(j => renderJobRow(j, upload.blog_name)).join('');
+
+  return `
+    <div class="upload-group" id="group-${upload.id}">
+      <div class="upload-header">
+        <span style="font-size:18px">📂</span>
+        <div>
+          <div class="uh-name">${escHtml(upload.original_name)}</div>
+          <div style="font-size:11px;color:var(--primary);font-weight:500;margin-top:1px">🏷 ${escHtml(upload.blog_name || '')}</div>
+          ${upload.additional_instructions ? `<div style="font-size:11px;color:var(--warning);margin-top:2px" title="${escHtml(upload.additional_instructions)}">📝 Instructions: ${escHtml(upload.additional_instructions.substring(0,80))}${upload.additional_instructions.length > 80 ? '…' : ''}</div>` : ''}
+          <div class="uh-meta">
+            <span>📅 ${fmtDate(upload.uploaded_at)}</span>
+            <span>📄 ${upload.row_count} row${upload.row_count !== 1 ? 's' : ''}</span>
+          </div>
+        </div>
+        <div class="uh-badges">${statsHtml}</div>
+        ${upload.total_cost > 0 ? `<div class="uh-stat" style="margin-left:8px;color:var(--text-muted)">💰 $${upload.total_cost.toFixed(4)}</div>` : ''}
+      </div>
+      <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;overflow:hidden">
+        <table class="jobs-table">
+          <thead>
+            <tr>
+              <th style="width:36px;text-align:center">
+                <input type="checkbox" title="Select all in this batch"
+                  onchange="toggleUploadSelection('${upload.id}', this.checked)"
+                  style="cursor:pointer;width:14px;height:14px">
+              </th>
+              <th>#</th>
+              <th>Title</th>
+              <th>Keyword</th>
+              <th>Scheduled</th>
+              <th>Status</th>
+              <th>Cost</th>
+              <th>WP Post</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-${upload.id}">
+            ${tableRows}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// Small colored SEO score pill (predicted Rank Math). Empty when no content yet.
+function seoChip(seo) {
+  if (!seo) return '';
+  return `<span class="seo-chip" style="background:${seo.color}1a;color:${seo.color};border:1px solid ${seo.color}55"
+    title="Predicted Rank Math score: ${seo.score}/100 — ${escHtml(seo.grade)}">SEO ${seo.score}</span>`;
+}
+
+// Content-quality score from the SEO Machine engine (0-100). Empty for native-engine jobs.
+function qualityChip(score) {
+  if (score == null || score === '') return '';
+  const s = Math.round(Number(score) * 10) / 10;
+  const color = s >= 80 ? '#16a34a' : s >= 70 ? '#d97706' : '#dc2626';
+  return `<span class="seo-chip" style="background:${color}1a;color:${color};border:1px solid ${color}55"
+    title="SEO Machine content-quality score: ${s}/100 (humanity, specificity, structure, SEO, readability)">Q ${s}</span>`;
+}
+
+function renderJobRow(j, blogName) {
+  const isActive = ['generating','posting'].includes(j.status);
+  const displayTitle = j.generated_title || j.title || '—';
+
+  // Usage-limit auto-resume: pending job rescheduled to the limit reset time
+  const isLimitWait = j.status === 'pending' && /auto-resuming/i.test(j.error_message || '');
+  const resumeAt = isLimitWait ? `${fmtDateShort(j.scheduled_at)} ${String(j.scheduled_at || '').slice(11, 16)}` : '';
+
+  // Scheduled from spreadsheet date (future pending, not a limit pause)
+  const now = new Date();
+  const scheduledDate = j.scheduled_at ? new Date(j.scheduled_at) : null;
+  const isFutureScheduled = j.status === 'pending' && !isLimitWait && scheduledDate && scheduledDate > now;
+
+  const statusBadge = isLimitWait
+    ? `<span class="badge badge-paused" title="${escHtml(j.error_message)}">⏳ Limit · resumes ${resumeAt}</span>`
+    : isFutureScheduled
+      ? `<span class="badge badge-pending" title="Scheduled to run on ${fmtDateShort(j.scheduled_at)}">📅 Scheduled · ${fmtDateShort(j.scheduled_at)}</span>`
+      : `<span class="badge badge-${j.status}">${statusIcon(j.status)} ${statusLabel(j.status)}</span>`;
+
+  const elapsedHtml = isActive
+    ? `<div class="elapsed" data-since="${j.updated_at}">⏱ …</div><div class="progress-mini"><div class="progress-mini-fill"></div></div>`
+    : (j.error_message && !isLimitWait ? `<div style="font-size:11px;color:var(--danger);margin-top:3px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(j.error_message)}">⚠ ${escHtml(j.error_message.substring(0, 60))}${j.error_message.length > 60 ? '…' : ''}</div>` : '');
+
+  const srcLabel = { pexels: '📷 Pexels', unsplash: '📷 Unsplash', svg: '🎨 SVG' }[j.image_source] || '';
+  const imgSrcBadge = srcLabel ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px">${escHtml(srcLabel)}</div>` : '';
+  const wpLink = (j.wp_post_id && safeUrl(j.wp_post_url))
+    ? `<a href="${safeUrl(j.wp_post_url)}" target="_blank" rel="noopener" class="btn btn-success btn-sm" style="font-size:11px">WP #${j.wp_post_id}</a>${imgSrcBadge}`
+    : (j.wp_post_id ? `<span class="text-muted" style="font-size:11px">WP #${j.wp_post_id}</span>${imgSrcBadge}` : '<span class="text-muted" style="font-size:11px">—</span>');
+
+  const actions = buildActions(j);
+
+  return `
+    <tr class="job-row" id="row-${j.id}" data-id="${j.id}" onclick="toggleLogs('${j.id}')">
+      <td style="text-align:center" onclick="event.stopPropagation()">
+        <input type="checkbox" class="job-checkbox" data-id="${j.id}"
+          onchange="onCheckboxChange()"
+          style="cursor:pointer;width:14px;height:14px">
+      </td>
+      <td>${j.row_number}</td>
+      <td class="cell-title">
+        <span class="t-main" title="${escHtml(displayTitle)}">${escHtml(displayTitle)}</span>
+        <span class="t-subrow">
+          ${seoChip(j.seo)}${qualityChip(j.seomachine_score)}
+          ${!activeBlogFilter && blogName ? `<span class="t-sub" style="display:inline;color:var(--primary);opacity:.8">🏷 ${escHtml(blogName)}</span>` : ''}
+          ${j.retry_count > 0 ? `<span class="t-sub" style="display:inline">↺ Retry ${j.retry_count}</span>` : ''}
+          ${j.additional_instructions ? `<span class="t-sub" style="display:inline;color:var(--warning)" title="${escHtml(j.additional_instructions)}">📋 Custom</span>` : ''}
+        </span>
+      </td>
+      <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-muted)">${escHtml(j.primary_keyword || '—')}</td>
+      <td style="font-size:12px;white-space:nowrap;color:var(--text-muted)">${fmtDateShort(j.scheduled_at)}</td>
+      <td>${statusBadge}${elapsedHtml}</td>
+      <td style="font-size:11px;color:var(--text-muted);white-space:nowrap">${j.cost_usd > 0 ? '$'+j.cost_usd.toFixed(4) : '—'}</td>
+      <td>${wpLink}</td>
+      <td onclick="event.stopPropagation()"><div class="action-group">${actions}</div></td>
+    </tr>
+    <tr class="log-panel-row" id="logs-${j.id}">
+      <td class="log-panel-cell" colspan="9">
+        <div class="log-panel-inner" id="loginner-${j.id}">
+          <div class="log-empty">Loading logs…</div>
+        </div>
+      </td>
+    </tr>`;
+}
+
+function buildActions(j) {
+  const id = j.id;
+  const active = ['generating','posting'].includes(j.status);
+  const s = 'style="font-size:11px"';
+  const btns = [];
+
+  // ── Start ──
+  if (!active) {
+    if (j.status === 'paused')
+      btns.push(`<button class="btn btn-primary btn-sm" ${s} onclick="jobAction('${id}','resume')" title="Resume">▶ Start</button>`);
+    else if (['pending','error','skipped'].includes(j.status))
+      btns.push(`<button class="btn btn-primary btn-sm" ${s} onclick="jobAction('${id}','process-now')" title="Run now">▶ Start</button>`);
+  }
+
+  // ── Pause (pending only) ──
+  if (j.status === 'pending')
+    btns.push(`<button class="btn btn-secondary btn-sm" ${s} onclick="jobAction('${id}','pause')" title="Pause">⏸</button>`);
+
+  // ── Edit (pending / paused / error) ──
+  if (!active && ['pending','paused','error'].includes(j.status))
+    btns.push(`<button class="btn btn-secondary btn-sm" ${s} onclick="jobEdit('${id}')" title="Edit title, keyword or add instructions">✏️</button>`);
+
+  // ── Smart retry based on state ──
+  if (!active) {
+    if (j.status === 'error' && j.has_content)
+      btns.push(`<button class="btn btn-info btn-sm" ${s} onclick="jobRetryPost('${id}')" title="Content ready — retry WP posting only">📤 Retry Post</button>`);
+    if (j.status === 'drafted') {
+      btns.push(`<button class="btn btn-sm" style="font-size:11px;background:rgba(34,211,238,.14);color:#67e8f9;border:1px solid rgba(34,211,238,.35)" onclick="openFeedback('${id}')" title="Leave feedback — the AI applies it to future posts for this blog">💬 Feedback</button>`);
+      btns.push(`<button class="btn btn-secondary btn-sm" ${s} onclick="jobRegenerate('${id}')" title="Keep WP post, regenerate content">↺ Regen</button>`);
+    }
+    btns.push(`<button class="btn btn-warning btn-sm" ${s} onclick="jobRestart('${id}')" title="Clear everything and restart">↺ Restart</button>`);
+  }
+
+  // ── Delete ──
+  if (!active)
+    btns.push(`<button class="btn btn-danger btn-sm" ${s} onclick="jobDelete('${id}')" title="Delete permanently">🗑</button>`);
+
+  return btns.join('');
+}
+
+// ── Feedback (improves future AI generations) ──
+let _fbRating = null;
+
+function setFbRating(r) {
+  _fbRating = (_fbRating === r) ? null : r;
+  const up = document.getElementById('fbRatingUp');
+  const down = document.getElementById('fbRatingDown');
+  up.style.background   = _fbRating === 'up'   ? 'rgba(34,197,94,.18)'  : 'var(--surface2)';
+  up.style.borderColor  = _fbRating === 'up'   ? 'var(--success)'       : 'var(--border)';
+  down.style.background  = _fbRating === 'down' ? 'rgba(239,68,68,.18)' : 'var(--surface2)';
+  down.style.borderColor = _fbRating === 'down' ? 'var(--danger)'       : 'var(--border)';
+}
+
+async function openFeedback(id) {
+  document.getElementById('feedbackJobId').value = id;
+  document.getElementById('feedbackText').value = '';
+  _fbRating = null;
+  setFbRating(null);
+  document.getElementById('existingFeedback').innerHTML = '';
+  document.getElementById('feedbackModal').classList.remove('hidden');
+
+  const data = await API.get(`/api/jobs/${id}/feedback`);
+  const list = data?.feedback || [];
+  if (list.length) {
+    document.getElementById('existingFeedback').innerHTML = `
+      <label class="form-label">Previous notes on this post</label>
+      <div style="display:flex;flex-direction:column;gap:6px;max-height:140px;overflow:auto">
+        ${list.map(f => `
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12.5px">
+            <span>${f.rating === 'up' ? '👍 ' : f.rating === 'down' ? '👎 ' : ''}${escHtml(f.feedback)}</span>
+            <button class="btn btn-danger btn-sm" style="flex-shrink:0" onclick="deleteFeedback(${f.id}, '${id}')" title="Remove — stops applying it to future posts">🗑</button>
+          </div>`).join('')}
+      </div>`;
+  }
+}
+function closeFeedback() { document.getElementById('feedbackModal').classList.add('hidden'); }
+
+async function submitFeedback() {
+  const id = document.getElementById('feedbackJobId').value;
+  const feedback = document.getElementById('feedbackText').value.trim();
+  if (!feedback) { showToast('Please enter some feedback', 'warning'); return; }
+  const btn = document.getElementById('fbSubmitBtn');
+  btn.disabled = true;
+  const data = await API.post(`/api/jobs/${id}/feedback`, { rating: _fbRating, feedback });
+  btn.disabled = false;
+  if (data?.ok) {
+    showToast('Feedback saved — the AI will apply it to future posts', 'success');
+    closeFeedback();
+  } else {
+    showToast(data?.error || 'Failed to save feedback', 'warning');
+  }
+}
+
+async function deleteFeedback(fbId, jobId) {
+  const data = await API.delete(`/api/feedback/${fbId}`);
+  if (data?.ok) { showToast('Feedback removed', 'success'); openFeedback(jobId); }
+}
+
+// Fetch + render logs into an (already-open) inline panel — used by render() to
+// restore the open panel after a re-render, and by socket handlers.
+async function refreshInlineLogs(id) {
+  const inner = document.getElementById('loginner-' + id);
+  if (!inner) return;
+  const data = await API.get(`/api/jobs/${id}`);
+  if (data) renderInlineLogs(inner, data.logs || []);
+}
+
+// ── Inline log toggle ──
+async function toggleLogs(id) {
+  const row = document.getElementById('row-' + id);
+  const logRow = document.getElementById('logs-' + id);
+  const inner = document.getElementById('loginner-' + id);
+
+  const isOpen = logRow.classList.contains('open');
+
+  // Close any other open panels
+  document.querySelectorAll('.log-panel-row.open').forEach(r => {
+    r.classList.remove('open');
+    const rid = r.id.replace('logs-', '');
+    document.getElementById('row-' + rid)?.classList.remove('log-open');
+  });
+
+  if (!isOpen) {
+    row.classList.add('log-open');
+    logRow.classList.add('open');
+    // Load logs
+    inner.innerHTML = '<div class="log-empty">Loading…</div>';
+    const data = await API.get(`/api/jobs/${id}`);
+    if (!data) { inner.innerHTML = '<div class="log-empty">Failed to load logs.</div>'; return; }
+    renderInlineLogs(inner, data.logs || []);
+  }
+}
+
+function renderInlineLogs(container, logs) {
+  if (!logs.length) {
+    container.innerHTML = '<div class="log-empty">No activity logged for this job yet.</div>';
+    return;
+  }
+  const sorted = [...logs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const icons = { info: 'ℹ', success: '✓', warning: '⚠', error: '✕' };
+  container.innerHTML = sorted.map(l => `
+    <div class="tl-item">
+      <div class="tl-dot ${l.level}">${icons[l.level] || '•'}</div>
+      <div class="tl-body">
+        <div class="tl-msg">${escHtml(l.message)}</div>
+        <div class="tl-time">${fmtTime(l.created_at)}</div>
+      </div>
+    </div>`).join('');
+}
+
+// ── Job actions ──
+async function jobAction(id, action) {
+  const data = await API.post(`/api/jobs/${id}/${action}`);
+  if (data?.error) showToast(data.error, 'warning');
+  else {
+    showToast(action === 'process-now' ? 'Job started!' : 'Done', 'success');
+    if (action !== 'process-now') await load(); // process-now: socket events handle the UI update
+  }
+}
+async function jobRetryPost(id) {
+  const data = await API.post(`/api/jobs/${id}/retry-post`);
+  if (data?.error) showToast(data.error, 'warning');
+  else showToast('Retrying WordPress post with existing content…', 'success');
+}
+async function jobRegenerate(id) {
+  if (!confirm('Regenerate content?\n\nThis will:\n• Clear the generated content\n• Keep the existing WordPress post\n• Re-run generation then update the WP draft')) return;
+  const data = await API.post(`/api/jobs/${id}/regenerate`);
+  if (data?.error) showToast(data.error, 'warning');
+  else { showToast('Content cleared — start the job to regenerate', 'success'); await load(); }
+}
+async function jobRestart(id) {
+  if (!confirm('Restart this job?\n\nThis will permanently clear:\n• All generated content\n• WordPress post data\n• All activity logs\n\nThe job will reset to pending and run fresh.')) return;
+  const data = await API.post(`/api/jobs/${id}/restart`);
+  if (data?.error) showToast(data.error, 'warning');
+  else { showToast('Job restarted — cleared and ready to run fresh', 'success'); await load(); }
+}
+async function jobDelete(id) {
+  if (!confirm('Delete this job permanently?\n\nThis will remove:\n• The job itself\n• All generated content\n• All activity logs\n\nThis cannot be undone.')) return;
+  const data = await API.delete(`/api/jobs/${id}`);
+  if (data?.error) showToast(data.error, 'warning');
+  else { showToast('Job deleted', 'info'); await load(); }
+}
+
+// ── Elapsed timers ──
+function startElapsedTimers() {
+  clearInterval(window._elTimer);
+  window._elTimer = setInterval(() => {
+    document.querySelectorAll('.elapsed[data-since]').forEach(el => {
+      const since = new Date(el.dataset.since + ' UTC');
+      const sec = Math.floor((Date.now() - since) / 1000);
+      const m = Math.floor(sec / 60), s = sec % 60;
+      el.textContent = `⏱ ${m}:${String(s).padStart(2,'0')}`;
+    });
+  }, 1000);
+}
+
+// ── Bulk selection ──
+function getSelectedIds() {
+  return [...document.querySelectorAll('.job-checkbox:checked')].map(cb => cb.dataset.id);
+}
+
+function onCheckboxChange() {
+  const selected = getSelectedIds();
+  const bar = document.getElementById('bulkBar');
+  if (selected.length > 0) {
+    bar.style.display = 'flex';
+    bar.classList.remove('hidden');
+    document.getElementById('bulkCount').textContent = `${selected.length} selected`;
+  } else {
+    bar.style.display = 'none';
+    bar.classList.add('hidden');
+  }
+}
+
+function toggleUploadSelection(uploadId, checked) {
+  // Select/deselect all checkboxes within this upload group
+  document.querySelectorAll(`#tbody-${uploadId} .job-checkbox`).forEach(cb => {
+    cb.checked = checked;
+  });
+  onCheckboxChange();
+}
+
+function clearSelection() {
+  document.querySelectorAll('.job-checkbox').forEach(cb => cb.checked = false);
+  onCheckboxChange();
+}
+
+async function bulkRetryPost() {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  const data = await API.post('/api/jobs/bulk-retry-post', { ids });
+  if (data?.error) showToast(data.error, 'warning');
+  else { showToast(`Retry post started for ${data.retried} job${data.retried !== 1 ? 's' : ''}${data.skipped ? ` (${data.skipped} skipped)` : ''}`, 'success'); clearSelection(); await load(); }
+}
+async function bulkRestart() {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  if (!confirm(`Restart ${ids.length} job${ids.length !== 1 ? 's' : ''}?\n\nThis clears all content, WP data, and logs for each selected job. Cannot be undone.`)) return;
+  const data = await API.post('/api/jobs/bulk-restart', { ids });
+  if (data?.error) showToast(data.error, 'warning');
+  else { showToast(`Restarted ${data.restarted} job${data.restarted !== 1 ? 's' : ''}`, 'success'); clearSelection(); await load(); }
+}
+async function bulkDelete() {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} job${ids.length !== 1 ? 's' : ''} permanently?\n\nThis will remove all selected jobs and their logs. This cannot be undone.`)) return;
+
+  const data = await API.post('/api/jobs/bulk-delete', { ids });
+  if (data?.error) {
+    showToast(data.error, 'warning');
+  } else {
+    showToast(`Deleted ${data.deleted} job${data.deleted !== 1 ? 's' : ''}${data.skipped ? ` (${data.skipped} skipped — running jobs cannot be deleted)` : ''}`, 'success');
+    await load();
+  }
+}
+
+// ── Edit job (inline modal) ──
+async function jobEdit(id) {
+  const data = await API.get(`/api/jobs/${id}`);
+  if (!data) return;
+  const j = data.job;
+  document.getElementById('jeId').value = id;
+  document.getElementById('jeTitle').value = j.title || '';
+  document.getElementById('jeKeyword').value = j.primary_keyword || '';
+  const raw = JSON.parse(j.raw_data || '{}');
+  document.getElementById('jeSecondary').value = Array.isArray(raw.secondary_keywords) ? raw.secondary_keywords.join(', ') : (raw.secondary_keywords || '');
+  document.getElementById('jeInstructions').value = j.additional_instructions || '';
+  document.getElementById('jobEditModal').classList.remove('hidden');
+}
+function closeJobEdit() { document.getElementById('jobEditModal').classList.add('hidden'); }
+async function saveJobEdit() {
+  const id = document.getElementById('jeId').value;
+  const data = await API.put(`/api/jobs/${id}`, {
+    title: document.getElementById('jeTitle').value.trim(),
+    primary_keyword: document.getElementById('jeKeyword').value.trim(),
+    secondary_keywords: document.getElementById('jeSecondary').value,
+    additional_instructions: document.getElementById('jeInstructions').value.trim(),
+  });
+  if (data?.ok) { closeJobEdit(); showToast('Job updated', 'success'); await load(); }
+  else showToast(data?.error || 'Failed', 'warning');
+}
+
+// ── Socket live updates (debounced — many events fire during generation) ──
+socket.on('job:updated', () => scheduleLoad()); // render() restores the open log panel
+socket.on('job:created', () => scheduleLoad());
+socket.on('job:deleted', () => scheduleLoad());
+socket.on('batch:complete', (batch) => {
+  showToast(`✅ "${batch.upload_name}" complete — ${batch.drafted} drafted${batch.errors ? ', ' + batch.errors + ' errors' : ''}`, batch.errors ? 'warning' : 'success');
+  scheduleLoad();
+});
+socket.on('log:new', (log) => {
+  if (!log.job_id) return;
+  const logRow = document.getElementById('logs-' + log.job_id);
+  if (logRow?.classList.contains('open')) refreshInlineLogs(log.job_id);
+});
+
+// ── Helpers ──
+function statusIcon(s) {
+  return { pending:'⏳', generating:'⚡', posting:'📤', drafted:'✅', error:'❌', paused:'⏸', skipped:'⏭' }[s] || '•';
+}
+function statusLabel(s) {
+  return { pending:'Pending', generating:'Generating', posting:'Posting', drafted:'Drafted', error:'Error', paused:'Paused', skipped:'Skipped' }[s] || s;
+}
+function fmtDate(dt) {
+  if (!dt) return '—';
+  return new Date(dt + (dt.includes('T') ? '' : ' UTC')).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+}
+function fmtDateShort(dt) {
+  if (!dt) return '—';
+  return new Date(dt + (dt.includes('T') ? '' : ' UTC')).toLocaleDateString('en-GB', { day:'2-digit', month:'short' });
+}
+</script>
+</body>
+</html>

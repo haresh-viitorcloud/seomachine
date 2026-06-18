@@ -1,0 +1,33 @@
+<!-- Sidebar template (included in each page via JS) -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <div class="logo">⚡ CT Automation</div>
+    <div class="sub">Content Auto-Draft Tool</div>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/dashboard" class="nav-item" data-path="/dashboard">
+      <span class="icon">📊</span> Dashboard
+    </a>
+    <a href="/upload" class="nav-item" data-path="/upload">
+      <span class="icon">📤</span> Upload Spreadsheet
+    </a>
+    <a href="/settings" class="nav-item" data-path="/settings">
+      <span class="icon">⚙️</span> Blog Settings
+    </a>
+    <a href="/claude-setup" class="nav-item" data-path="/claude-setup">
+      <span class="icon">🤖</span> Claude Setup
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatarInitial">A</div>
+      <div>
+        <div id="sidebarUsername" style="font-size:13px;font-weight:500">Admin</div>
+        <div class="text-muted text-small">Administrator</div>
+      </div>
+    </div>
+    <button class="nav-item" onclick="logout()" style="color:var(--danger)">
+      <span class="icon">🚪</span> Logout
+    </button>
+  </div>
+</aside>

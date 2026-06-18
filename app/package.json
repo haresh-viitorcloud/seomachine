@@ -1,0 +1,39 @@
+{
+  "name": "ct-automation",
+  "version": "1.0.0",
+  "description": "Content Auto-Draft Tool — generates blog posts via Claude AI and posts drafts to WordPress",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "install-browsers": "npx playwright install chromium",
+    "setup": "node scripts/setup.js",
+    "boot": "bash start.sh",
+    "boot:dev": "bash start.sh --dev",
+    "boot:bg": "bash start.sh --bg"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "axios": "^1.7.2",
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.10.0",
+    "connect-sqlite3": "^0.9.13",
+    "cors": "^2.8.5",
+    "cross-spawn": "^7.0.6",
+    "dayjs": "^1.11.11",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "helmet": "^7.1.0",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.3",
+    "playwright": "^1.45.0",
+    "sharp": "^0.34.5",
+    "socket.io": "^4.7.5",
+    "uuid": "^10.0.0",
+    "xlsx": "^0.18.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

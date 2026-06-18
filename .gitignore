@@ -112,3 +112,19 @@ env/
 # GA4 Credentials (additional explicit entry)
 ga4-credentials.json
 google-analytics-credentials.json
+
+# ─────────────────────────────────────────────────────────────
+# ct-automation app overlay (app/) — local-only runtime artifacts.
+# .env and node_modules/ are already ignored globally above; these
+# cover the app's runtime data so upstream merges stay clean.
+# ─────────────────────────────────────────────────────────────
+app/data/
+app/uploads/
+app/*.db
+app/*.db-shm
+app/*.db-wal
+app/*.db-journal
+app/.playwright/
+app/playwright-browsers/
+# Client content calendars / working spreadsheets (may contain client data)
+*.xlsx

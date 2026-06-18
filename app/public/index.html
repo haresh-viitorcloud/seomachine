@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CT Automation — Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <style>
+    :root {
+      --c-indigo: #6366f1;
+      --c-cyan: #38bdf8;
+      --c-accent: #22d3ee;
+    }
+    html, body { height: 100%; }
+    /* Login is always the dark cinematic theme — override any global light theme */
+    html[data-theme="light"] body,
+    body {
+      margin: 0;
+      font-family: 'Inter', system-ui, sans-serif;
+      background: radial-gradient(1200px 800px at 20% 25%, #0e1630 0%, #070b18 55%, #04060f 100%) !important;
+      overflow: hidden;
+      color: #e2e8f0;
+    }
+
+    /* Ambient backlight glows + floating particles span the whole screen */
+    .ambient {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background:
+        radial-gradient(620px 620px at 22% 70%, rgba(56,189,248,0.16), transparent 60%),
+        radial-gradient(560px 560px at 80% 35%, rgba(99,102,241,0.18), transparent 65%);
+    }
+    .particles { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 0; }
+    .particle {
+      position: absolute; width: 2px; height: 2px; border-radius: 50%;
+      background: rgba(125,211,252,0.5);
+      animation: floatUp linear infinite;
+    }
+    @keyframes floatUp {
+      from { transform: translateY(105vh); opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 0.3; }
+      to   { transform: translateY(-10vh); opacity: 0; }
+    }
+
+    /* ---------- Split layout ---------- */
+    .split { position: relative; z-index: 1; display: flex; min-height: 100vh; width: 100%; }
+
+    /* ---------- Left: project info ---------- */
+    .brand-panel {
+      flex: 1; display: flex; flex-direction: column; justify-content: center;
+      padding: 64px clamp(36px, 5vw, 88px); position: relative;
+    }
+    .brand-panel::before {
+      content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 1px;
+      background: linear-gradient(180deg, transparent, rgba(125,211,252,0.22), transparent);
+    }
+    .bp-eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+      color: #7c8aa8; margin-bottom: 22px;
+      opacity: 0; animation: rise .7s ease .1s forwards;
+    }
+    .bp-eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 10px #22c55e; }
+    .bp-title {
+      font-size: clamp(32px, 4vw, 50px); font-weight: 800; line-height: 1.08; letter-spacing: -1px;
+      margin: 0 0 18px; opacity: 0; animation: rise .7s ease .2s forwards;
+    }
+    .bp-title .grad {
+      background: linear-gradient(90deg, #a5b4fc, #38bdf8 60%, #22d3ee);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .bp-tagline {
+      font-size: clamp(15px, 1.5vw, 17px); line-height: 1.6; color: #9fb0cf;
+      max-width: 460px; margin: 0 0 34px; opacity: 0; animation: rise .7s ease .3s forwards;
+    }
+    .bp-features { list-style: none; padding: 0; margin: 0; display: grid; gap: 15px; max-width: 460px; }
+    .bp-features li { display: flex; align-items: flex-start; gap: 14px; opacity: 0; animation: rise .6s ease forwards; }
+    .bp-features li:nth-child(1) { animation-delay: .42s; }
+    .bp-features li:nth-child(2) { animation-delay: .52s; }
+    .bp-features li:nth-child(3) { animation-delay: .62s; }
+    .bp-features li:nth-child(4) { animation-delay: .72s; }
+    .bp-ico {
+      flex-shrink: 0; width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; font-size: 18px;
+      background: rgba(99,102,241,0.14); border: 1px solid rgba(125,211,252,0.2);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+    .bp-feat-t { font-size: 14.5px; font-weight: 600; color: #e8eefb; }
+    .bp-feat-d { font-size: 13px; color: #8294b4; margin-top: 2px; line-height: 1.5; }
+    .bp-foot { margin-top: 40px; font-size: 12px; color: #56657f; opacity: 0; animation: rise .7s ease .85s forwards; }
+    @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ---------- Right: cinematic scene (man + briefcase + form) ---------- */
+    .auth-panel {
+      flex: 1.05; position: relative; overflow: hidden;
+      perspective: 1400px; min-height: 100vh;
+    }
+
+    /* 3D world holding floor + man + briefcase */
+    .world {
+      position: absolute; left: 50%; bottom: 8%;
+      width: 460px; height: 420px;
+      transform: translateX(-50%) scale(0.92);
+      transform-style: preserve-3d; z-index: 1;
+    }
+
+    /* Reflective floor plane */
+    .floor {
+      position: absolute; left: 50%; bottom: 40px; width: 1300px; height: 1300px;
+      transform: translateX(-50%) rotateX(78deg); transform-origin: bottom center;
+      background:
+        radial-gradient(closest-side at 50% 50%, rgba(56,189,248,0.10), transparent 60%),
+        repeating-linear-gradient(0deg, rgba(99,102,241,0.06) 0 1px, transparent 1px 56px),
+        repeating-linear-gradient(90deg, rgba(99,102,241,0.06) 0 1px, transparent 1px 56px);
+      mask-image: radial-gradient(closest-side at 50% 50%, #000 35%, transparent 72%);
+      -webkit-mask-image: radial-gradient(closest-side at 50% 50%, #000 35%, transparent 72%);
+    }
+    .floor-glow {
+      position: absolute; left: 50%; bottom: 54px; width: 320px; height: 110px;
+      transform: translateX(-50%);
+      background: radial-gradient(closest-side, rgba(56,189,248,0.35), transparent 70%);
+      filter: blur(6px); opacity: 0; animation: glowIn 1s ease 0.7s forwards;
+    }
+    @keyframes glowIn { to { opacity: 1; } }
+    .ripple {
+      position: absolute; left: 50%; bottom: 76px; width: 60px; height: 22px;
+      transform: translateX(-50%); border: 2px solid rgba(125,211,252,0.6); border-radius: 50%;
+      opacity: 0; animation: rippleOut 0.9s ease-out 0.78s 1;
+    }
+    @keyframes rippleOut {
+      0%   { opacity: 0.8; transform: translateX(-50%) scale(0.3); }
+      100% { opacity: 0; transform: translateX(-50%) scale(6); }
+    }
+
+    /* Businessman silhouette */
+    .man {
+      position: absolute; left: 50%; bottom: 80px; transform: translateX(-50%);
+      width: 120px; height: 250px; opacity: 0;
+      animation: manIn 1s ease 0.15s forwards;
+      filter: drop-shadow(0 0 26px rgba(56,189,248,0.45));
+    }
+    @keyframes manIn {
+      from { opacity: 0; transform: translateX(-50%) translateY(-26px); }
+      to   { opacity: 0.92; transform: translateX(-50%) translateY(0); }
+    }
+    .man > div { position: absolute; left: 50%; background: #0a1024; transform: translateX(-50%); }
+    .man-head { top: 0; width: 34px; height: 34px; border-radius: 50%; }
+    .man-neck { top: 30px; width: 16px; height: 12px; }
+    .man-torso { top: 40px; width: 96px; height: 120px; border-radius: 26px 26px 14px 14px; clip-path: polygon(18% 0, 82% 0, 100% 22%, 86% 100%, 14% 100%, 0 22%); }
+    .man-tie { top: 44px; width: 8px; height: 54px; background: #131c38; clip-path: polygon(50% 0, 100% 18%, 60% 100%, 40% 100%, 0 18%); }
+    .man-leg-l, .man-leg-r { top: 150px; width: 26px; height: 96px; border-radius: 8px 8px 4px 4px; }
+    .man-leg-l { transform: translateX(-130%); }
+    .man-leg-r { transform: translateX(30%); }
+
+    /* Briefcase */
+    .briefcase-wrap {
+      position: absolute; left: 50%; bottom: 64px; width: 230px; height: 150px;
+      transform: translateX(-50%); transform-style: preserve-3d;
+      animation: caseDrop 0.95s cubic-bezier(.34,1.4,.5,1) 0.05s both;
+    }
+    @keyframes caseDrop {
+      0%   { transform: translateX(-50%) translateY(-460px) rotateZ(-8deg); opacity: 0; }
+      60%  { opacity: 1; }
+      80%  { transform: translateX(-50%) translateY(0) rotateZ(0); }
+      90%  { transform: translateX(-50%) translateY(-14px); }
+      100% { transform: translateX(-50%) translateY(0); }
+    }
+    .case-body {
+      position: absolute; bottom: 0; left: 0; width: 230px; height: 96px; border-radius: 14px;
+      background: linear-gradient(180deg, #3b2a1c 0%, #2a1d12 100%);
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: inset 0 2px 0 rgba(255,255,255,0.08), 0 18px 40px rgba(0,0,0,0.55);
+    }
+    .case-inner {
+      position: absolute; top: 8px; left: 12px; right: 12px; height: 30px; border-radius: 8px;
+      background: radial-gradient(closest-side, rgba(56,189,248,0.9), rgba(99,102,241,0.4) 70%, transparent);
+      opacity: 0; animation: innerGlow 0.6s ease 1.15s forwards;
+    }
+    @keyframes innerGlow { to { opacity: 1; } }
+    .case-lid {
+      position: absolute; bottom: 96px; left: 0; width: 230px; height: 70px;
+      border-radius: 14px 14px 6px 6px;
+      background: linear-gradient(180deg, #46331f 0%, #34250f 100%);
+      border: 1px solid rgba(255,255,255,0.08);
+      transform-origin: bottom center; transform: rotateX(0deg);
+      animation: lidOpen 0.8s cubic-bezier(.4,0,.2,1) 1.05s both;
+      box-shadow: inset 0 2px 0 rgba(255,255,255,0.08);
+    }
+    @keyframes lidOpen { from { transform: rotateX(0deg); } to { transform: rotateX(-118deg); } }
+    .case-clasp { position: absolute; top: 44px; width: 26px; height: 14px; background: #cbb06a; border-radius: 3px; box-shadow: 0 0 8px rgba(203,176,106,0.6); }
+    .case-clasp.left  { left: 56px; }
+    .case-clasp.right { right: 56px; }
+    .case-handle {
+      position: absolute; top: -26px; left: 50%; width: 78px; height: 40px; transform: translateX(-50%);
+      border: 7px solid #1d140a; border-bottom: none; border-radius: 40px 40px 0 0;
+      animation: handleFade 0.5s ease 1.0s forwards;
+    }
+    @keyframes handleFade { to { opacity: 0.15; } }
+
+    /* Projection beam rising from the open case toward the form */
+    .beam {
+      position: absolute; left: 50%; bottom: 130px; width: 360px; height: 380px;
+      transform: translateX(-50%);
+      background: linear-gradient(to top, rgba(56,189,248,0.32), rgba(99,102,241,0.10) 55%, transparent 85%);
+      clip-path: polygon(36% 100%, 64% 100%, 92% 0, 8% 0);
+      filter: blur(2px); opacity: 0; transform-origin: bottom center;
+      animation: beamUp 0.7s ease 1.35s forwards; z-index: 1;
+    }
+    @keyframes beamUp {
+      from { opacity: 0; transform: translateX(-50%) scaleY(0.2); }
+      to   { opacity: 1; transform: translateX(-50%) scaleY(1); }
+    }
+
+    /* ---------- Holographic login panel — rises from the open case ---------- */
+    .hologram {
+      position: absolute; left: 50%; top: 50%; width: 100%; max-width: 372px;
+      transform: translate(-50%, -62%);
+      padding: 34px 32px 28px; border-radius: 18px;
+      background: linear-gradient(160deg, rgba(18,26,52,0.82), rgba(10,15,32,0.78));
+      border: 1px solid rgba(125,211,252,0.28);
+      box-shadow: 0 0 0 1px rgba(99,102,241,0.10), 0 30px 80px rgba(0,0,0,0.55), 0 0 60px rgba(56,189,248,0.18);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      opacity: 0; z-index: 5;
+      animation: panelRise 0.9s cubic-bezier(.2,.7,.2,1) 1.55s both;
+    }
+    @keyframes panelRise {
+      0%   { opacity: 0; transform: translate(-50%, -18%) scale(0.74); filter: blur(8px); }
+      60%  { opacity: 1; }
+      100% { opacity: 1; transform: translate(-50%, -62%) scale(1); filter: blur(0); }
+    }
+    .hologram::after {
+      content: ""; position: absolute; inset: 0; border-radius: 18px; pointer-events: none;
+      background: linear-gradient(180deg, transparent, rgba(125,211,252,0.06) 50%, transparent);
+      background-size: 100% 8px; mix-blend-mode: screen; opacity: 0.5; animation: scan 6s linear infinite;
+    }
+    @keyframes scan { from { background-position: 0 0; } to { background-position: 0 200px; } }
+
+    .holo-logo { text-align: center; margin-bottom: 22px; position: relative; z-index: 1; }
+    .holo-logo .brand {
+      font-size: 22px; font-weight: 700; letter-spacing: 0.5px;
+      background: linear-gradient(90deg, #a5b4fc, #38bdf8);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .holo-logo .tagline { font-size: 11.5px; color: #7c8aa8; margin-top: 5px; letter-spacing: 2px; text-transform: uppercase; }
+
+    .hologram form, .hologram #alertBox { position: relative; z-index: 1; }
+    .hologram .form-group { margin-bottom: 15px; }
+    .hologram .form-label { display: block; font-size: 11.5px; font-weight: 500; letter-spacing: 0.5px; color: #9fb0cf; margin-bottom: 7px; }
+    .hologram .form-control {
+      width: 100%; padding: 11px 14px; background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(125,211,252,0.22); border-radius: 10px; color: #e2e8f0; font-size: 14px;
+      transition: border-color .15s, box-shadow .15s; outline: none; box-sizing: border-box;
+    }
+    .hologram .form-control::placeholder { color: #5b6b8a; }
+    .hologram .form-control:focus { border-color: var(--c-cyan); box-shadow: 0 0 0 3px rgba(56,189,248,0.15); }
+    .hologram .btn-primary {
+      width: 100%; margin-top: 6px; padding: 12px; border: none; border-radius: 10px;
+      font-size: 14px; font-weight: 600; letter-spacing: 0.3px; color: #fff; cursor: pointer;
+      background: linear-gradient(90deg, #6366f1, #22d3ee); box-shadow: 0 8px 24px rgba(56,189,248,0.30);
+      transition: transform .15s, box-shadow .15s, opacity .15s;
+    }
+    .hologram .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(56,189,248,0.42); }
+    .hologram .btn-primary:disabled { opacity: 0.7; cursor: default; }
+    .holo-hint { text-align: center; margin-top: 16px; font-size: 10.5px; letter-spacing: 2px; text-transform: uppercase; color: rgba(148,163,184,0.4); position: relative; z-index: 1; }
+
+    /* ---------- Responsive ---------- */
+    @media (max-width: 1024px) { .world { transform: translateX(-50%) scale(0.78); } }
+    @media (max-width: 900px) {
+      body { overflow: auto; }
+      .split { flex-direction: column; }
+      .brand-panel { flex: none; padding: 50px 28px 12px; text-align: center; align-items: center; }
+      .brand-panel::before { display: none; }
+      .bp-tagline, .bp-features { margin-left: auto; margin-right: auto; }
+      .bp-features li { text-align: left; }
+      .bp-foot { display: none; }
+      .auth-panel { flex: none; min-height: 620px; }
+      .world { transform: translateX(-50%) scale(0.72); bottom: 4%; }
+      .hologram { transform: translate(-50%, -58%); }
+      @keyframes panelRise {
+        0% { opacity: 0; transform: translate(-50%, -14%) scale(0.74); filter: blur(8px); }
+        60% { opacity: 1; }
+        100% { opacity: 1; transform: translate(-50%, -58%) scale(1); filter: blur(0); }
+      }
+    }
+    @media (max-width: 480px) {
+      .bp-features { display: none; }
+      .auth-panel { min-height: 560px; }
+      .world { transform: translateX(-50%) scale(0.6); }
+      .hologram { max-width: 90vw; padding: 28px 22px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .man, .briefcase-wrap, .case-lid, .case-inner, .case-handle, .beam,
+      .floor-glow, .ripple, .hologram, .hologram::after, .particle,
+      .bp-eyebrow, .bp-title, .bp-tagline, .bp-features li, .bp-foot {
+        animation: none !important; opacity: 1 !important;
+      }
+      .man, .briefcase-wrap, .beam, .floor-glow, .ripple { transform: translateX(-50%) !important; }
+      .case-lid { transform: rotateX(-118deg) !important; }
+      .hologram { transform: translate(-50%, -62%) !important; }
+      .bp-eyebrow, .bp-title, .bp-tagline, .bp-features li, .bp-foot { transform: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient"></div>
+  <div class="particles" id="particles"></div>
+
+  <div class="split">
+    <!-- Left: project info -->
+    <section class="brand-panel">
+      <span class="bp-eyebrow"><span class="dot"></span> Content Automation Platform</span>
+      <h1 class="bp-title"><span class="grad">CT Automation</span><br>Your blog calendar, on autopilot.</h1>
+      <p class="bp-tagline">
+        Turn a spreadsheet of blog ideas into SEO-optimized, publish-ready WordPress
+        drafts — written by Claude AI, queued, and posted for you automatically.
+      </p>
+      <ul class="bp-features">
+        <li><span class="bp-ico">🤖</span><span><span class="bp-feat-t">AI-written articles</span><span class="bp-feat-d">Full long-form posts generated by Claude from your calendar rows.</span></span></li>
+        <li><span class="bp-ico">📈</span><span><span class="bp-feat-t">Built for SEO</span><span class="bp-feat-d">Rank Math optimized titles, meta, slugs, and keyword placement.</span></span></li>
+        <li><span class="bp-ico">📝</span><span><span class="bp-feat-t">Auto-saved to WordPress</span><span class="bp-feat-d">Drafts created with categories, tags, and featured images.</span></span></li>
+        <li><span class="bp-ico">⚡</span><span><span class="bp-feat-t">Live job queue</span><span class="bp-feat-d">Track generation and posting in real time across multiple blogs.</span></span></li>
+      </ul>
+      <div class="bp-foot">Secure access · CT Automation</div>
+    </section>
+
+    <!-- Right: cinematic scene — man sets down the briefcase, it opens, and the login form rises out -->
+    <section class="auth-panel">
+      <div class="world">
+        <div class="floor"></div>
+        <div class="floor-glow"></div>
+
+        <div class="man">
+          <div class="man-head"></div>
+          <div class="man-neck"></div>
+          <div class="man-torso"></div>
+          <div class="man-tie"></div>
+          <div class="man-leg-l"></div>
+          <div class="man-leg-r"></div>
+        </div>
+
+        <div class="ripple"></div>
+        <div class="beam"></div>
+
+        <div class="briefcase-wrap">
+          <div class="case-lid">
+            <div class="case-clasp left"></div>
+            <div class="case-clasp right"></div>
+          </div>
+          <div class="case-body">
+            <div class="case-inner"></div>
+          </div>
+          <div class="case-handle"></div>
+        </div>
+      </div>
+
+      <div class="hologram">
+        <div class="holo-logo">
+          <div class="brand">⚡ CT Automation</div>
+          <div class="tagline">Sign in to continue</div>
+        </div>
+        <div id="alertBox"></div>
+        <form id="loginForm">
+          <div class="form-group">
+            <label class="form-label">Username</label>
+            <input type="text" id="username" class="form-control" placeholder="admin" autocomplete="username" autofocus>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" id="password" class="form-control" placeholder="••••••••" autocomplete="current-password">
+          </div>
+          <button type="submit" class="btn btn-primary w-full" id="loginBtn">Sign In</button>
+        </form>
+        <div class="holo-hint">Encrypted session · Authorized users only</div>
+      </div>
+    </section>
+  </div>
+
+<script>
+// Ambient dust particles
+(function () {
+  const container = document.getElementById('particles');
+  if (!container) return;
+  const colors = ['rgba(125,211,252,0.6)', 'rgba(99,102,241,0.5)', 'rgba(34,211,238,0.45)'];
+  for (let i = 0; i < 40; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    p.style.left = Math.random() * 100 + 'vw';
+    p.style.animationDuration = (9 + Math.random() * 16) + 's';
+    p.style.animationDelay = (-Math.random() * 20) + 's';
+    const size = 1 + Math.random() * 2.5;
+    p.style.width = p.style.height = size + 'px';
+    p.style.background = colors[Math.floor(Math.random() * colors.length)];
+    container.appendChild(p);
+  }
+})();
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('loginBtn');
+  const alertBox = document.getElementById('alertBox');
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+
+  if (!username || !password) {
+    alertBox.innerHTML = '<div class="alert alert-error">Please enter username and password.</div>';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Signing in...';
+  alertBox.innerHTML = '';
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      location.href = '/dashboard';
+    } else {
+      alertBox.innerHTML = `<div class="alert alert-error">${data.error || 'Login failed.'}</div>`;
+      btn.disabled = false;
+      btn.innerHTML = 'Sign In';
+    }
+  } catch {
+    alertBox.innerHTML = '<div class="alert alert-error">Network error. Please try again.</div>';
+    btn.disabled = false;
+    btn.innerHTML = 'Sign In';
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "_comment": "CTA background images per blog. Image paths are RELATIVE — the blog's own domain (wp_url) is prepended automatically, so staging vs production resolves itself. To manage images: edit a category path below, add a new category key, or add a blog-slug section to override the defaults for one blog. 'default' (top level) is the fallback set used by any blog without its own section. The 'default' category inside a set is used when no category matches. Blog slugs in 'disabled' get NO cta-section-modern banner — the inline CTA in the generated article is used instead.",
+  "disabled": ["everycred", "everyticket"],
+  "default": {
+    "categories": {
+      "ai": "/wp-content/uploads/2024/05/AI.jpg",
+      "cloud": "/wp-content/uploads/2024/08/cloud-cta.jpg",
+      "digital_transformation": "/wp-content/uploads/2024/07/digital-transformation-cta.jpg",
+      "data": "/wp-content/uploads/2024/08/data-analytics-cta.jpg",
+      "technology_consulting": "/wp-content/uploads/2024/07/technology-consulting-cta-scaled.jpg",
+      "digital_experience": "/wp-content/uploads/2024/08/digital-experience-cta-scaled.jpg",
+      "default": "/wp-content/uploads/2024/09/vc-tech-cta-scaled.webp"
+    }
+  }
+}

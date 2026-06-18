@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <script>if(localStorage.getItem("ct-theme")==="light")document.documentElement.setAttribute("data-theme","light")</script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upload Spreadsheet — CT Automation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <style>
+    /* Step progress indicator */
+    .steps {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 28px;
+    }
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+    }
+    .step-circle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      flex-shrink: 0;
+      border: 2px solid var(--border);
+      color: var(--text-muted);
+      background: var(--surface);
+      transition: all .2s;
+    }
+    .step.active   .step-circle { border-color: var(--primary); color: var(--primary); background: rgba(99,102,241,.12); }
+    .step.done     .step-circle { border-color: var(--success); color: #fff; background: var(--success); }
+    .step-label { font-size: 12.5px; color: var(--text-muted); font-weight: 500; }
+    .step.active .step-label { color: var(--text); }
+    .step.done   .step-label { color: var(--success); }
+    .step-line { flex: 1; height: 1px; background: var(--border); max-width: 60px; margin: 0 4px; }
+
+    /* File zone */
+    .file-zone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 28px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all .2s;
+      display: block;
+    }
+    .file-zone:hover, .file-zone.dragover {
+      border-color: var(--primary);
+      background: rgba(99,102,241,.05);
+    }
+    .file-zone.has-file {
+      border-color: var(--success);
+      background: rgba(34,197,94,.05);
+      cursor: default;
+    }
+    .fz-icon { font-size: 32px; margin-bottom: 10px; }
+    .fz-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .fz-sub { font-size: 12px; color: var(--text-muted); }
+
+    /* Selected file bar */
+    .file-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(34,197,94,.08);
+      border: 1px solid rgba(34,197,94,.25);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    .file-bar .file-name { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-bar .file-size { color: var(--text-muted); font-size: 12px; flex-shrink: 0; }
+    .file-bar .remove-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
+    .file-bar .remove-btn:hover { color: var(--danger); background: rgba(239,68,68,.1); }
+
+    /* Blog selection cards */
+    .blog-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all .18s;
+      position: relative;
+    }
+    .blog-card:hover { border-color: var(--primary); background: rgba(99,102,241,.04); }
+    .blog-card.selected { border-color: var(--primary); background: rgba(99,102,241,.08); }
+    .blog-card-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: var(--primary);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .blog-card-info { flex: 1; min-width: 0; }
+    .blog-card-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .blog-card-domain { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .blog-card-check {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      opacity: 0;
+      transition: opacity .15s;
+      flex-shrink: 0;
+    }
+    .blog-card.selected .blog-card-check { opacity: 1; }
+
+    /* Preview toolbar */
+    .preview-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0;
+    }
+    .preview-toolbar .left  { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .preview-toolbar .right { display: flex; align-items: center; gap: 8px; }
+    .sel-badge {
+      background: var(--primary);
+      color: #fff;
+      border-radius: 12px;
+      padding: 2px 10px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* Success card */
+    .success-card {
+      text-align: center;
+      padding: 48px 24px;
+    }
+    .success-icon {
+      width: 72px; height: 72px;
+      background: rgba(34,197,94,.15);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      margin: 0 auto 20px;
+    }
+    .success-card h2 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+    .success-card p  { color: var(--text-muted); font-size: 14px; margin-bottom: 6px; }
+    .redirect-msg { font-size: 13px; color: var(--text-muted); margin-top: 16px; }
+    .redirect-msg span { color: var(--primary); font-weight: 600; }
+  </style>
+</head>
+<body>
+<div class="app-layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo">⚡ CT Automation</div>
+      <div class="sub">Content Auto-Draft Tool</div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="/dashboard" class="nav-item"><span class="icon">📊</span> Dashboard</a>
+      <a href="/jobs"      class="nav-item"><span class="icon">📋</span> All Jobs</a>
+      <a href="/upload"    class="nav-item active"><span class="icon">📤</span> Upload Spreadsheet</a>
+      <a href="/settings"  class="nav-item"><span class="icon">⚙️</span> Blog Settings</a>
+      <a href="/claude-setup" class="nav-item"><span class="icon">🤖</span> Claude Setup</a>
+      <a href="/pitch-demo"  class="nav-item"><span class="icon">🎬</span> Product Demo</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="avatar" id="avatarInitial">A</div>
+        <div><div id="sidebarUsername" style="font-size:13px;font-weight:500">Admin</div></div>
+      </div>
+      <button class="nav-item" onclick="logout()" style="color:var(--danger)"><span class="icon">🚪</span> Logout</button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+
+    <div class="page-header flex-between">
+      <div>
+        <h1>Upload Blog Calendar</h1>
+        <p>Upload your Excel/CSV spreadsheet to queue blog posts for auto-generation</p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <a href="#" id="templateLink" class="btn btn-secondary btn-sm">⬇ Download Template</a>
+        <button id="cancelUploadBtn" class="btn btn-secondary btn-sm" onclick="cancelUpload()" style="color:var(--danger);border-color:var(--danger)" title="Cancel and go back">✕ Cancel</button>
+      </div>
+    </div>
+
+    <!-- Step progress indicator -->
+    <div class="steps" id="stepIndicator">
+      <div class="step active" id="si1">
+        <div class="step-circle">1</div>
+        <div class="step-label">Select Blog</div>
+      </div>
+      <div class="step-line"></div>
+      <div class="step" id="si2">
+        <div class="step-circle">2</div>
+        <div class="step-label">Upload File</div>
+      </div>
+      <div class="step-line"></div>
+      <div class="step" id="si3">
+        <div class="step-circle">3</div>
+        <div class="step-label">Review &amp; Select</div>
+      </div>
+      <div class="step-line"></div>
+      <div class="step" id="si4">
+        <div class="step-circle">4</div>
+        <div class="step-label">Queued</div>
+      </div>
+    </div>
+
+    <div id="alertBox"></div>
+
+    <!-- ── Step 1: Select Blog ── -->
+    <div id="step1">
+      <div class="card">
+        <div class="card-header">
+          <h3>Which blog is this sheet for?</h3>
+          <span class="text-muted text-small">Select a blog to continue — each blog has its own WordPress credentials and content rules</span>
+        </div>
+        <div id="blogCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-top:4px">
+          <div class="text-muted text-small">Loading blogs…</div>
+        </div>
+        <!-- Hidden select kept for compatibility with parseFile() and other JS that reads .value -->
+        <select id="blogSelect" style="display:none"></select>
+      </div>
+    </div>
+
+    <!-- ── Step 2: Upload File ── -->
+    <div id="step2" class="hidden">
+
+      <div class="card" style="margin-bottom:16px;background:rgba(99,102,241,.04);border-color:rgba(99,102,241,.2)">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div id="selectedBlogBadge" style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600">
+          </div>
+          <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="goBackToBlogSelect()">Change Blog</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Spreadsheet File</h3>
+          <span class="text-muted text-small">Excel (.xlsx, .xls) or CSV · max 10 MB</span>
+        </div>
+
+        <label for="fileInput" class="file-zone" id="dropZone">
+          <div class="fz-icon">📊</div>
+          <div class="fz-title">Drop your blog calendar here</div>
+          <div class="fz-sub">or click to browse files</div>
+        </label>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none">
+
+        <div id="fileBar" class="file-bar hidden">
+          <span>📄</span>
+          <span class="file-name" id="fileName">—</span>
+          <span class="file-size" id="fileSize"></span>
+          <button class="remove-btn" onclick="clearFile()" title="Remove file">✕</button>
+        </div>
+
+        <div id="parseActions" class="hidden" style="margin-top:14px;display:flex;align-items:center;gap:12px">
+          <button class="btn btn-primary" onclick="parseFile()" id="parseBtn">
+            Parse Spreadsheet →
+          </button>
+          <span class="text-muted text-small">We'll preview all rows before queuing anything</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Step 3: Preview ── -->
+    <div id="step3" class="hidden">
+      <div class="card">
+
+        <div class="preview-toolbar">
+          <div class="left">
+            <button class="btn btn-secondary btn-sm" onclick="backToStep2()">← Back</button>
+            <strong id="previewCount" style="font-size:14px">0</strong>
+            <span class="text-muted text-small" id="previewBlog"></span>
+            <span class="sel-badge" id="selectionBadge">0 selected</span>
+          </div>
+          <div class="right" style="gap:10px;align-items:center">
+            <button class="btn btn-secondary btn-sm" onclick="selectAll()">☑ All</button>
+            <button class="btn btn-secondary btn-sm" onclick="selectNone()">☐ None</button>
+            <!-- Start mode toggle -->
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:12px;font-weight:600">
+                <button id="modeAutoBtn" onclick="setStartMode('auto')"
+                  style="padding:6px 12px;border:none;cursor:pointer;background:var(--primary);color:#fff"
+                  title="Jobs start generating immediately">⚡ Auto-start</button>
+                <button id="modeManualBtn" onclick="setStartMode('manual')"
+                  style="padding:6px 12px;border:none;cursor:pointer;background:var(--surface);color:var(--text-muted)"
+                  title="Jobs wait until you click Start">⏸ Manual</button>
+              </div>
+              <!-- Sub-option: only shown in Auto mode -->
+              <div id="scheduleRespectWrap" style="display:flex;align-items:center;gap:6px;font-size:11.5px;padding:2px 4px">
+                <input type="checkbox" id="respectSchedule" checked style="cursor:pointer">
+                <label for="respectSchedule" style="cursor:pointer;color:var(--text-muted)">Respect scheduled dates from sheet</label>
+              </div>
+            </div>
+            <button class="btn btn-success" id="confirmBtn" onclick="confirmUpload()" disabled>
+              ✓ Queue &amp; Start
+            </button>
+          </div>
+        </div>
+
+        <div id="parseWarnings" style="margin-top:10px"></div>
+
+        <!-- Duplicate detection banner -->
+        <div id="dupBanner" style="display:none;flex-direction:column;gap:10px;background:rgba(245,158,11,.08);border:1.5px solid rgba(245,158,11,.4);border-radius:10px;padding:14px 16px;margin-top:12px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="font-size:13px;font-weight:600;color:#f59e0b">⚠ <span id="dupBannerCount">0</span> post(s) already exist in the queue</span>
+            <span class="text-muted text-small">Review actions below — Queue button is locked until you confirm.</span>
+            <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap">
+              <button class="btn btn-secondary btn-sm" onclick="applyAllDuplicates('replace')">↺ Replace All</button>
+              <button class="btn btn-secondary btn-sm" onclick="applyAllDuplicates('skip')">✕ Skip All</button>
+              <button class="btn btn-secondary btn-sm" onclick="applyAllDuplicates('keep')">+ Keep All</button>
+            </div>
+          </div>
+          <!-- Duplicate summary (shown after user chooses actions) -->
+          <div id="dupSummary" style="font-size:12px;color:var(--text-muted);padding:8px 12px;background:rgba(0,0,0,.15);border-radius:6px;display:none"></div>
+          <!-- Confirm button — unlocks the queue button -->
+          <div style="display:flex;align-items:center;gap:10px">
+            <button id="dupConfirmBtn" class="btn btn-warning btn-sm" onclick="confirmDuplicateActions()" style="font-weight:600">
+              ✓ Confirm Duplicate Actions
+            </button>
+            <span id="dupConfirmedBadge" style="display:none;font-size:12px;color:var(--success);font-weight:600">✓ Confirmed — you can now queue</span>
+          </div>
+        </div>
+
+        <!-- Additional instructions — visible on Step 3 so user can set per-batch context -->
+        <div style="margin:14px 0 10px">
+          <label class="form-label" style="margin-bottom:6px;display:flex;align-items:center;gap:8px">
+            📝 Additional Instructions
+            <span class="text-muted text-small" style="font-weight:400">optional — applied to every selected article during generation</span>
+            <span id="instrCharCount" style="margin-left:auto;font-size:11px;color:var(--text-muted);font-weight:400">0 / 2000</span>
+          </label>
+          <textarea id="additionalInstructions" class="form-control" rows="2" maxlength="2000"
+            placeholder="e.g. Focus on enterprise CTO audience. Include Gartner/McKinsey statistics. Mention MariDeal $46.4M case study in every article."
+            style="resize:vertical;font-size:13px;line-height:1.6"
+            oninput="updateInstrCount()"></textarea>
+          <div class="form-hint">Added to Claude's prompt as highest-priority rules for this batch only. Leave blank to use default settings.</div>
+        </div>
+
+        <div class="preview-wrap" style="margin-top:0;border-top:none;border-radius:0 0 var(--radius) var(--radius)">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:40px;text-align:center">
+                  <input type="checkbox" id="checkAll" onchange="toggleAll(this.checked)"
+                    style="cursor:pointer;width:15px;height:15px" title="Select / deselect all">
+                </th>
+                <th style="width:36px">#</th>
+                <th>Date</th>
+                <th>Blog Title</th>
+                <th>Primary Keyword</th>
+                <th>Type</th>
+                <th>Stage</th>
+                <th id="dupColHeader" style="display:none">Duplicate</th>
+              </tr>
+            </thead>
+            <tbody id="previewBody"></tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Step 4: Success ── -->
+    <div id="step4" class="hidden">
+      <div class="card">
+        <div class="success-card">
+          <div class="success-icon">🎉</div>
+          <h2>Jobs Queued Successfully!</h2>
+          <p id="successMsg" style="font-weight:500"></p>
+          <p id="successSubMsg" class="text-muted text-small"></p>
+          <div style="display:flex;justify-content:center;gap:12px;margin-top:24px">
+            <a href="/jobs" class="btn btn-primary" style="padding:10px 22px">View All Jobs →</a>
+            <button class="btn btn-secondary" onclick="uploadAnother()">Upload Another Sheet</button>
+          </div>
+          <p class="redirect-msg" id="redirectMsg">Redirecting in <span id="countdownNum">5</span>s…</p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="/assets/js/common.js"></script>
+<script>
+let parsedRows = [];
+let duplicateMap = {};    // { row_number: existing_job }
+let duplicateActions = {}; // { row_number: 'replace'|'skip'|'keep' }
+let selectedFile = null;
+let selectedRowNumbers = new Set();
+let redirectTimer = null;
+let allBlogConfigs = [];  // populated by loadBlogConfigs
+
+(async () => {
+  const me = await API.get('/api/auth/me');
+  if (!me || !me.loggedIn) { location.href = '/'; return; }
+  document.getElementById('sidebarUsername').textContent = me.username;
+  document.getElementById('avatarInitial').textContent = me.username[0].toUpperCase();
+  document.getElementById('templateLink').href = '/api/upload/template';
+  await loadBlogConfigs();
+})();
+
+async function loadBlogConfigs() {
+  const data = await API.get('/api/configs');
+  const container = document.getElementById('blogCards');
+  const sel = document.getElementById('blogSelect');
+  if (!data || !data.configs.length) {
+    container.innerHTML = '<div class="text-muted text-small">No blog configurations found. <a href="/settings">Add one in Settings</a> first.</div>';
+    return;
+  }
+  allBlogConfigs = data.configs.filter(c => c.is_active);
+  // Keep hidden select in sync (used by parseFile)
+  sel.innerHTML = allBlogConfigs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+  // Pre-select from localStorage filter if available
+  const savedBlogId = localStorage.getItem('ct-blog-filter');
+
+  container.innerHTML = allBlogConfigs.map(c => {
+    const initials = c.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+    const preselected = savedBlogId && String(c.id) === savedBlogId;
+    return `<div class="blog-card${preselected ? ' selected' : ''}" onclick="selectBlog(${c.id})" data-blog-id="${c.id}">
+      <div class="blog-card-avatar">${initials}</div>
+      <div class="blog-card-info">
+        <div class="blog-card-name">${escHtml(c.name)}</div>
+        <div class="blog-card-domain">${escHtml(c.domain)}</div>
+      </div>
+      <div class="blog-card-check">✓</div>
+    </div>`;
+  }).join('');
+
+  // Pre-select the card from localStorage but do NOT auto-advance — user must click to confirm
+  if (savedBlogId && allBlogConfigs.some(c => String(c.id) === savedBlogId)) {
+    sel.value = savedBlogId;
+  }
+}
+
+function selectBlog(blogId) {
+  document.querySelectorAll('.blog-card').forEach(el => el.classList.remove('selected'));
+  const card = document.querySelector(`.blog-card[data-blog-id="${blogId}"]`);
+  if (card) card.classList.add('selected');
+  document.getElementById('blogSelect').value = blogId;
+  advanceToBlogUpload(blogId);
+}
+
+function advanceToBlogUpload(blogId) {
+  const blog = allBlogConfigs.find(c => c.id === blogId);
+  if (!blog) return;
+  // Show selected blog badge in step 2 header
+  document.getElementById('selectedBlogBadge').innerHTML =
+    `<span style="width:32px;height:32px;border-radius:8px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${escHtml(blog.name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase())}</span>
+     <span>${escHtml(blog.name)}</span>
+     <span class="text-muted" style="font-weight:400">${escHtml(blog.domain)}</span>`;
+  setStep(2);
+}
+
+function goBackToBlogSelect() {
+  clearFile();
+  setStep(1);
+}
+
+// ── File handling ──
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', e => { dropZone.classList.remove('dragover'); });
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f) setFile(f);
+});
+document.getElementById('fileInput').addEventListener('change', e => {
+  if (e.target.files[0]) setFile(e.target.files[0]);
+});
+
+function setFile(file) {
+  const alertBox = document.getElementById('alertBox');
+  alertBox.innerHTML = '';
+
+  // Validate format before accepting — only spreadsheet types
+  if (!/\.(xlsx|xls|csv)$/i.test(file.name || '')) {
+    showAlert(alertBox, 'Invalid file type. Please upload a .xlsx, .xls, or .csv spreadsheet.', 'error');
+    document.getElementById('fileInput').value = '';
+    return;
+  }
+
+  selectedFile = file;
+  document.getElementById('fileName').textContent = file.name;
+  document.getElementById('fileSize').textContent = formatBytes(file.size);
+  document.getElementById('fileBar').classList.remove('hidden');
+  document.getElementById('parseActions').classList.remove('hidden');
+  dropZone.classList.add('has-file');
+  dropZone.style.pointerEvents = 'none';
+
+  // Auto-advance: valid file + blog already selected → parse immediately
+  if (document.getElementById('blogSelect').value) parseFile();
+}
+
+function clearFile() {
+  selectedFile = null;
+  document.getElementById('fileBar').classList.add('hidden');
+  document.getElementById('parseActions').classList.add('hidden');
+  document.getElementById('additionalInstructions').value = '';
+  document.getElementById('fileInput').value = '';
+  dropZone.classList.remove('has-file');
+  dropZone.style.pointerEvents = '';
+}
+
+function updateInstrCount() {
+  const ta = document.getElementById('additionalInstructions');
+  const counter = document.getElementById('instrCharCount');
+  if (!ta || !counter) return;
+  const len = ta.value.length;
+  counter.textContent = `${len} / 2000`;
+  counter.style.color = len >= 1900 ? 'var(--danger)' : len >= 1600 ? 'var(--warning)' : 'var(--text-muted)';
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+// ── Parse ──
+async function parseFile() {
+  const alertBox = document.getElementById('alertBox');
+  alertBox.innerHTML = '';
+
+  const blogId = document.getElementById('blogSelect').value;
+  if (!blogId) {
+    showAlert(alertBox, 'Please select a blog configuration first.', 'error');
+    return;
+  }
+  if (!selectedFile) {
+    showAlert(alertBox, 'No file selected. Please drop or choose a spreadsheet.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('parseBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Parsing…';
+
+  const fd = new FormData();
+  fd.append('file', selectedFile);
+  fd.append('blog_id', blogId);
+
+  try {
+    const res = await fetch('/api/upload/parse', { method: 'POST', credentials: 'same-origin', body: fd });
+    let data;
+    try { data = await res.json(); }
+    catch { throw new Error(`Unexpected server response (HTTP ${res.status})`); }
+
+    if (!res.ok || !data.ok) {
+      showAlert(alertBox, data.error || 'Parsing failed.', 'error');
+      if (data.details?.length) {
+        data.details.forEach(d => {
+          const w = document.createElement('div');
+          w.className = 'alert alert-warning';
+          w.textContent = '⚠ ' + d;
+          alertBox.appendChild(w);
+        });
+      }
+      btn.disabled = false;
+      btn.innerHTML = 'Parse Spreadsheet →';
+      return;
+    }
+
+    parsedRows = data.preview;
+    selectedRowNumbers = new Set(data.preview.map(r => r.row_number));
+
+    // Check for duplicates against existing jobs
+    const dupCheck = await API.post('/api/upload/check-duplicates', {
+      rows: data.preview.map(r => ({ row_number: r.row_number, title: r.title, primary_keyword: r.primary_keyword }))
+    });
+    duplicateMap = {};
+    duplicateActions = {};
+    if (dupCheck?.duplicates?.length) {
+      dupCheck.duplicates.forEach(d => {
+        duplicateMap[d.row_number] = d.existing_job;
+        duplicateActions[d.row_number] = 'replace'; // default action
+      });
+    }
+
+    renderPreview(data);
+    renderDuplicateBanner();
+    setStep(3);
+  } catch (err) {
+    showAlert(alertBox, 'Error: ' + err.message, 'error');
+    btn.disabled = false;
+    btn.innerHTML = 'Parse Spreadsheet →';
+  }
+}
+
+// ── Render preview table ──
+function renderPreview(data) {
+  document.getElementById('previewCount').textContent = data.rowCount + ' rows';
+  document.getElementById('previewBlog').textContent = '→ ' + data.blog.name;
+
+  const noticeBits = [];
+  if (data.mappings?.length) {
+    noticeBits.push(...data.mappings.map(m => `<div class="alert alert-info" style="margin-bottom:8px">🔁 ${escHtml(m)}</div>`));
+  }
+  if (data.warnings?.length) {
+    noticeBits.push(...data.warnings.map(w => `<div class="alert alert-warning" style="margin-bottom:8px">⚠ ${escHtml(w)}</div>`));
+  }
+  if (noticeBits.length) document.getElementById('parseWarnings').innerHTML = noticeBits.join('');
+
+  const tbody = document.getElementById('previewBody');
+  tbody.innerHTML = data.preview.map((r, i) => {
+    const rn = r.row_number || (i + 1);
+    const sel = selectedRowNumbers.has(rn);
+    const sc  = r.funnel_stage === 'BOFU' ? 'drafted'
+              : r.funnel_stage === 'MOFU' ? 'generating' : 'pending';
+    const isDup = !!duplicateMap[rn];
+    const dupJob = duplicateMap[rn];
+    const dupAction = duplicateActions[rn] || 'replace';
+    const dupStatusColor = dupJob ? { pending:'#94a3b8', paused:'#fbbf24', generating:'#818cf8', posting:'#60a5fa', drafted:'#4ade80', error:'#f87171' }[dupJob.status] || '#94a3b8' : '';
+
+    return `<tr id="pr-${rn}" class="${sel ? 'row-selected' : ''}${isDup ? ' dup-row' : ''}"
+      style="${isDup ? 'background:rgba(245,158,11,.06);border-left:3px solid #f59e0b;' : ''}">
+      <td style="text-align:center;padding:8px 12px">
+        <input type="checkbox" class="row-check" ${sel ? 'checked' : ''}
+          onchange="toggleRow(${rn}, this.checked)"
+          style="cursor:pointer;width:15px;height:15px">
+      </td>
+      <td class="text-muted" style="font-size:12px">${rn}</td>
+      <td class="text-small">${formatDateShort(r.scheduled_at || r.date)}</td>
+      <td class="td-title">
+        <span title="${escHtml(r.title)}">${escHtml(r.title)}</span>
+        ${isDup ? `<div style="font-size:10px;margin-top:2px;color:#f59e0b">⚠ Already exists · <span style="color:${dupStatusColor};font-weight:600">${dupJob.status.toUpperCase()}</span>${dupJob.wp_post_id ? ` · WP #${dupJob.wp_post_id}` : ''}</div>` : ''}
+      </td>
+      <td class="text-small text-muted">${escHtml(r.primary_keyword || '—')}</td>
+      <td class="text-small">${escHtml(r.blog_type || '—')}</td>
+      <td>${r.funnel_stage ? `<span class="badge badge-${sc}">${r.funnel_stage}</span>` : '—'}</td>
+      <td style="padding:6px 8px">
+        ${isDup ? `
+          <select onchange="setDupActionAndRequireReconfirm(${rn}, this.value)"
+            style="font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer">
+            <option value="replace" ${dupAction==='replace'?'selected':''}>↺ Replace</option>
+            <option value="skip"    ${dupAction==='skip'   ?'selected':''}>✕ Skip</option>
+            <option value="keep"    ${dupAction==='keep'   ?'selected':''}>+ Keep Both</option>
+          </select>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+
+  syncSelectionUI();
+}
+
+// Reset the duplicate confirmation (re-locks the queue button) — call whenever the
+// selection or actions change after the user has already confirmed, so a stale summary
+// can never be queued.
+function resetDupConfirmation() {
+  if (Object.keys(duplicateMap).length === 0) return;
+  dupConfirmed = false;
+  const badge = document.getElementById('dupConfirmedBadge');
+  const cbtn = document.getElementById('dupConfirmBtn');
+  const summary = document.getElementById('dupSummary');
+  if (badge) badge.style.display = 'none';
+  if (cbtn) cbtn.style.display = '';
+  if (summary) summary.style.display = 'none';
+  lockConfirmBtn(true);
+}
+
+// ── Checkbox helpers ──
+function toggleRow(rn, checked) {
+  if (checked) selectedRowNumbers.add(rn);
+  else selectedRowNumbers.delete(rn);
+  const tr = document.getElementById(`pr-${rn}`);
+  if (tr) tr.classList.toggle('row-selected', checked);
+  // Toggling a duplicate row invalidates a prior confirmation
+  if (duplicateMap[rn] && dupConfirmed) resetDupConfirmation();
+  syncSelectionUI();
+}
+
+function toggleAll(checked) {
+  parsedRows.forEach((r, i) => {
+    const rn = r.row_number || (i + 1);
+    if (checked) selectedRowNumbers.add(rn); else selectedRowNumbers.delete(rn);
+    const tr = document.getElementById(`pr-${rn}`);
+    if (tr) {
+      tr.classList.toggle('row-selected', checked);
+      const cb = tr.querySelector('.row-check');
+      if (cb) cb.checked = checked;
+    }
+  });
+  if (dupConfirmed) resetDupConfirmation();
+  syncSelectionUI();
+}
+
+function selectAll()  { document.getElementById('checkAll').checked = true;  toggleAll(true); }
+function selectNone() { document.getElementById('checkAll').checked = false; toggleAll(false); }
+
+// ── Duplicate handling ──
+function setDupAction(rowNumber, action) {
+  duplicateActions[rowNumber] = action;
+  // If skipped, uncheck the row
+  if (action === 'skip') {
+    selectedRowNumbers.delete(rowNumber);
+    const tr = document.getElementById(`pr-${rowNumber}`);
+    if (tr) { tr.classList.remove('row-selected'); const cb = tr.querySelector('.row-check'); if (cb) cb.checked = false; }
+    syncSelectionUI();
+  }
+}
+
+let dupConfirmed = false;
+
+function renderDuplicateBanner() {
+  const dupCount = Object.keys(duplicateMap).length;
+  const banner = document.getElementById('dupBanner');
+  const dupCol = document.getElementById('dupColHeader');
+  if (!banner) return;
+  if (!dupCount) {
+    banner.style.display = 'none';
+    if (dupCol) dupCol.style.display = 'none';
+    return;
+  }
+  if (dupCol) dupCol.style.display = '';
+  banner.style.display = 'flex';
+  document.getElementById('dupBannerCount').textContent = dupCount;
+  // Lock the queue button until duplicates are confirmed
+  lockConfirmBtn(true);
+  dupConfirmed = false;
+  document.getElementById('dupConfirmedBadge').style.display = 'none';
+  document.getElementById('dupConfirmBtn').style.display = '';
+  document.getElementById('dupSummary').style.display = 'none';
+}
+
+function lockConfirmBtn(locked) {
+  const btn = document.getElementById('confirmBtn');
+  if (!btn) return;
+  if (locked) {
+    btn.disabled = true;
+    btn.title = 'Review and confirm duplicate actions first';
+    btn.style.opacity = '0.45';
+    btn.style.cursor = 'not-allowed';
+  } else {
+    // Only unlock if rows are selected
+    btn.disabled = selectedRowNumbers.size === 0;
+    btn.title = '';
+    btn.style.opacity = '';
+    btn.style.cursor = '';
+  }
+}
+
+function confirmDuplicateActions() {
+  const counts = { replace: 0, skip: 0, keep: 0 };
+  Object.values(duplicateActions).forEach(a => counts[a]++);
+  const parts = [];
+  if (counts.replace) parts.push(`${counts.replace} will be replaced (old job deleted)`);
+  if (counts.skip)    parts.push(`${counts.skip} will be skipped`);
+  if (counts.keep)    parts.push(`${counts.keep} will be kept alongside existing`);
+  const summary = document.getElementById('dupSummary');
+  summary.textContent = '✓ ' + parts.join(' · ');
+  summary.style.display = 'block';
+  document.getElementById('dupConfirmBtn').style.display = 'none';
+  document.getElementById('dupConfirmedBadge').style.display = 'inline';
+  dupConfirmed = true;
+  lockConfirmBtn(false);
+}
+
+function applyAllDuplicates(action) {
+  Object.keys(duplicateMap).forEach(rn => {
+    duplicateActions[parseInt(rn)] = action;
+    const sel = document.querySelector(`#pr-${rn} select`);
+    if (sel) sel.value = action;
+    if (action === 'skip') {
+      selectedRowNumbers.delete(parseInt(rn));
+      const tr = document.getElementById(`pr-${rn}`);
+      if (tr) { tr.classList.remove('row-selected'); const cb = tr.querySelector('.row-check'); if (cb) cb.checked = false; }
+    }
+  });
+  // Reset confirmation when actions change
+  dupConfirmed = false;
+  document.getElementById('dupConfirmedBadge').style.display = 'none';
+  document.getElementById('dupConfirmBtn').style.display = '';
+  document.getElementById('dupSummary').style.display = 'none';
+  lockConfirmBtn(true);
+  syncSelectionUI();
+}
+
+function setDupActionAndRequireReconfirm(rowNumber, action) {
+  setDupAction(rowNumber, action);
+  // Any change to actions requires re-confirmation
+  if (dupConfirmed) {
+    dupConfirmed = false;
+    document.getElementById('dupConfirmedBadge').style.display = 'none';
+    document.getElementById('dupConfirmBtn').style.display = '';
+    document.getElementById('dupSummary').style.display = 'none';
+    lockConfirmBtn(true);
+  }
+}
+
+function syncSelectionUI() {
+  const count = selectedRowNumbers.size;
+  const total = parsedRows.length;
+  document.getElementById('selectionBadge').textContent = count + ' selected';
+  const btn = document.getElementById('confirmBtn');
+  btn.textContent = count > 0 ? `✓ Queue ${count} Selected` : '✓ Queue Selected';
+  // Respect the duplicate-confirmation gate: if duplicates exist and the user has
+  // not confirmed their actions, the Queue button stays locked regardless of selection.
+  const dupPending = Object.keys(duplicateMap).length > 0 && !dupConfirmed;
+  if (dupPending) {
+    lockConfirmBtn(true);
+  } else {
+    btn.disabled = count === 0;
+    btn.style.opacity = '';
+    btn.style.cursor = '';
+    btn.title = '';
+  }
+  const allChk = document.getElementById('checkAll');
+  if (allChk) {
+    allChk.checked = count === total && total > 0;
+    allChk.indeterminate = count > 0 && count < total;
+  }
+}
+
+// ── Start mode toggle (auto / manual) ──
+let startMode = 'auto';
+function setStartMode(mode) {
+  startMode = mode;
+  document.getElementById('modeAutoBtn').style.background   = mode === 'auto'   ? 'var(--primary)' : 'var(--surface)';
+  document.getElementById('modeAutoBtn').style.color        = mode === 'auto'   ? '#fff' : 'var(--text-muted)';
+  document.getElementById('modeManualBtn').style.background = mode === 'manual' ? 'var(--surface2)' : 'var(--surface)';
+  document.getElementById('modeManualBtn').style.color      = mode === 'manual' ? 'var(--text)' : 'var(--text-muted)';
+  document.getElementById('confirmBtn').textContent         = mode === 'auto'   ? '✓ Queue & Start' : '✓ Save to Queue';
+  // Show/hide schedule option based on mode
+  document.getElementById('scheduleRespectWrap').style.display = mode === 'auto' ? 'flex' : 'none';
+}
+
+// ── Confirm upload ──
+async function confirmUpload() {
+  if (selectedRowNumbers.size === 0) return;
+  const btn = document.getElementById('confirmBtn');
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span> ${startMode === 'auto' ? 'Queuing & Starting…' : 'Saving to Queue…'}`;
+
+  const data = await API.post('/api/upload/confirm', {
+    selectedRows: Array.from(selectedRowNumbers),
+    startMode,
+    autoStart: startMode === 'auto',
+    additionalInstructions: document.getElementById('additionalInstructions').value.trim(),
+    duplicateActions,
+  });
+  if (!data) { btn.disabled = false; syncSelectionUI(); return; }
+
+  if (data.ok) {
+    // Auto-start: kick off the queue immediately
+    if (startMode === 'auto' && data.queued > 0) {
+      const respectSchedule = document.getElementById('respectSchedule')?.checked;
+      if (respectSchedule) {
+        // Don't call process-next — let the scheduler pick up only due jobs
+        // Jobs with future dates will auto-start when their date arrives
+      } else {
+        // Run all now regardless of scheduled date
+        await API.post('/api/queue/process-next').catch(() => {});
+      }
+    }
+    const respectSchedule = document.getElementById('respectSchedule')?.checked;
+    const modeNote = startMode === 'auto'
+      ? (respectSchedule ? ' Jobs will start at their scheduled dates.' : ' Generation started immediately.')
+      : ' Go to Dashboard to start manually.';
+    document.getElementById('successMsg').textContent = data.message;
+    document.getElementById('successSubMsg').textContent = modeNote.trim();
+    setStep(4);
+    startRedirectCountdown(startMode === 'auto' ? 3 : 5);
+  } else {
+    showAlert(document.getElementById('alertBox'), data.error || 'Failed to queue jobs.', 'error');
+    btn.disabled = false;
+    syncSelectionUI();
+  }
+}
+
+function startRedirectCountdown(secs) {
+  let n = secs;
+  const el = document.getElementById('countdownNum');
+  el.textContent = n;
+  redirectTimer = setInterval(() => {
+    n--;
+    el.textContent = n;
+    if (n <= 0) {
+      clearInterval(redirectTimer);
+      location.href = '/jobs';
+    }
+  }, 1000);
+}
+
+// ── Navigation ──
+function setStep(n) {
+  [1,2,3,4].forEach(i => {
+    const el = document.getElementById('step' + i);
+    if (el) el.classList.toggle('hidden', i !== n);
+  });
+  ['si1','si2','si3','si4'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('active','done');
+    if (i + 1 < n) el.classList.add('done');
+    else if (i + 1 === n) el.classList.add('active');
+    el.querySelector('.step-circle').textContent = (i + 1 < n) ? '✓' : (i + 1);
+  });
+  // Hide Cancel button on step 4 — upload is already done
+  const cancelBtn = document.getElementById('cancelUploadBtn');
+  if (cancelBtn) cancelBtn.style.display = n === 4 ? 'none' : '';
+}
+
+function cancelUpload() {
+  API.post('/api/upload/cancel', {});
+  location.href = '/jobs';
+}
+
+function backToStep2() {
+  API.post('/api/upload/cancel', {});
+  document.getElementById('parseWarnings').innerHTML = '';
+  document.getElementById('alertBox').innerHTML = '';
+  document.getElementById('parseBtn').disabled = false;
+  document.getElementById('parseBtn').innerHTML = 'Parse Spreadsheet →';
+  setStep(2);
+}
+
+function uploadAnother() {
+  if (redirectTimer) { clearInterval(redirectTimer); redirectTimer = null; }
+  clearFile();
+  parsedRows = [];
+  selectedRowNumbers = new Set();
+  duplicateMap = {};
+  duplicateActions = {};
+  dupConfirmed = false;
+  document.getElementById('alertBox').innerHTML = '';
+  document.getElementById('parseWarnings').innerHTML = '';
+  const banner = document.getElementById('dupBanner');
+  if (banner) banner.style.display = 'none';
+  lockConfirmBtn(false);
+  setStep(1);
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

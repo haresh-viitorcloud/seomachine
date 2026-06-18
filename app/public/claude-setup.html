@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <script>if(localStorage.getItem("ct-theme")==="light")document.documentElement.setAttribute("data-theme","light")</script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Setup — CT Automation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <style>
+    .terminal { font-family: 'Fira Code','Courier New',monospace; font-size: 12.5px; line-height: 1.7; }
+    .t-cmd   { color: #64748b; }
+    .t-output{ color: #e2e8f0; }
+    .t-ok    { color: #22c55e; }
+    .t-err   { color: #f87171; }
+    .t-info  { color: #60a5fa; }
+    .t-warn  { color: #fbbf24; }
+    .status-card { display:flex; align-items:center; gap:16px; padding:16px; background:var(--surface2); border-radius:8px; margin-bottom:12px; }
+    .status-card .icon { font-size:28px; flex-shrink:0; }
+    .status-card .label { font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; }
+    .status-card .value { font-size:15px; font-weight:600; }
+    .mode-active { border: 1px solid var(--success); background: rgba(34,197,94,.08); }
+    .mode-inactive { border: 1px solid var(--border); opacity:.7; }
+    .cursor { display:inline-block; width:8px; height:14px; background:#22c55e; animation:blink .7s step-end infinite; vertical-align:middle; }
+    @keyframes blink { 50%{opacity:0} }
+
+    /* Usage limits */
+    .usage-row { display:flex; align-items:center; gap:16px; padding:14px 0; }
+    .usage-row + .usage-row { border-top:1px solid var(--border); }
+    .usage-meta { min-width:170px; }
+    .usage-meta .u-title { font-size:14px; font-weight:600; }
+    .usage-meta .u-sub { font-size:12px; color:var(--text-muted); margin-top:2px; }
+    .usage-bar { flex:1; height:10px; border-radius:999px; background:var(--surface2); overflow:hidden; }
+    .usage-bar > span { display:block; height:100%; border-radius:999px; background:var(--grad, linear-gradient(90deg,#6366f1,#22d3ee)); transition:width .5s ease; }
+    .usage-bar.warn > span  { background:linear-gradient(90deg,#f59e0b,#fbbf24); }
+    .usage-bar.danger > span{ background:linear-gradient(90deg,#ef4444,#f87171); }
+    .usage-pct { min-width:80px; text-align:right; font-size:14px; font-weight:600; }
+    .usage-account { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+    .usage-account .pill { font-size:11px; padding:3px 10px; border-radius:999px; background:var(--surface2); border:1px solid var(--border); color:var(--text-muted); }
+  </style>
+</head>
+<body>
+<div class="app-layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo">⚡ CT Automation</div>
+      <div class="sub">Content Auto-Draft Tool</div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="/dashboard" class="nav-item" data-path="/dashboard"><span class="icon">📊</span> Dashboard</a>
+      <a href="/jobs"      class="nav-item" data-path="/jobs"><span class="icon">📋</span> All Jobs</a>
+      <a href="/upload"    class="nav-item" data-path="/upload"><span class="icon">📤</span> Upload Spreadsheet</a>
+      <a href="/settings"  class="nav-item" data-path="/settings"><span class="icon">⚙️</span> Blog Settings</a>
+      <a href="/claude-setup" class="nav-item active" data-path="/claude-setup"><span class="icon">🤖</span> Claude Setup</a>
+      <a href="/pitch-demo"  class="nav-item" data-path="/pitch-demo"><span class="icon">🎬</span> Product Demo</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="avatar" id="avatarInitial">A</div>
+        <div><div id="sidebarUsername" style="font-size:13px;font-weight:500">Admin</div></div>
+      </div>
+      <button class="nav-item" onclick="logout()" style="color:var(--danger)"><span class="icon">🚪</span> Logout</button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <div class="page-header">
+      <h1>Claude AI Setup</h1>
+      <p>Connect Claude to generate blog content — no API key needed if you log in via terminal</p>
+    </div>
+
+    <!-- Connection Status -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Connection Status</h3>
+        <button class="btn btn-secondary btn-sm" id="refreshBtn" onclick="refreshStatus()">↻ Refresh</button>
+      </div>
+
+      <div id="statusCards" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="status-card" id="cardCli">
+          <div class="icon">💻</div>
+          <div>
+            <div class="label">Claude CLI Session</div>
+            <div class="value" id="cliValue">Checking...</div>
+            <div class="text-small text-muted" id="cliSub"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="activeModeBox" style="margin-bottom:16px"></div>
+
+      <div class="flex gap-2">
+        <button class="btn btn-primary" id="testBtn" onclick="testConnection()">
+          🧪 Test Active Connection
+        </button>
+        <span id="testResult" style="font-size:13px;line-height:34px"></span>
+      </div>
+    </div>
+
+    <!-- Usage Limits -->
+    <div class="card" id="usageCard">
+      <div class="card-header">
+        <h3>📊 Claude Usage Limits</h3>
+        <button class="btn btn-secondary btn-sm" id="usageRefreshBtn" onclick="loadUsage()">↻ Refresh</button>
+      </div>
+      <p class="text-muted text-small" style="margin-bottom:14px">
+        Live usage from your Claude subscription session. Tracks the rolling 5-hour and 7-day limits.
+      </p>
+      <div id="usageBody">
+        <div class="text-muted text-small">Loading usage…</div>
+      </div>
+      <div id="usageFetched" style="font-size:11px;color:var(--text-muted);margin-top:12px"></div>
+    </div>
+
+    <!-- Model Selection -->
+    <div class="card">
+      <div class="card-header">
+        <h3>🤖 Claude Model</h3>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="modelSavedBadge" class="hidden" style="font-size:11px;color:var(--success);font-weight:600">✓ Saved</span>
+          <button class="btn btn-secondary btn-sm" onclick="fetchModels()" id="refreshModelsBtn" title="Fetch latest models from Anthropic API">↻ Refresh</button>
+        </div>
+      </div>
+      <p class="text-muted text-small" style="margin-bottom:16px">
+        Select the model for content generation. Default is <code>CLAUDE_MODEL</code> from <code>.env</code>.
+        Set an <code>ANTHROPIC_API_KEY</code> to auto-fetch newly launched models. Changes take effect immediately.
+      </p>
+
+      <!-- Dynamic model list -->
+      <div id="modelList" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+        <div class="text-muted text-small">Loading models…</div>
+      </div>
+      <div id="modelSource" style="font-size:11px;color:var(--text-muted);margin-bottom:14px"></div>
+
+      <!-- Custom model input -->
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <div style="flex:1">
+          <label class="form-label">Model ID <span style="font-weight:400;color:var(--text-muted)">(select above or type custom)</span></label>
+          <input type="text" id="modelInput" class="form-control"
+            placeholder="e.g. claude-sonnet-4-6"
+            style="font-family:monospace;font-size:13px">
+          <div class="form-hint" id="modelEnvHint"></div>
+        </div>
+        <button class="btn btn-primary btn-sm" style="margin-bottom:1px" onclick="saveModel()">Save Model</button>
+      </div>
+    </div>
+
+    <!-- Effort Level -->
+    <div class="card">
+      <div class="card-header">
+        <h3>⚡ Generation Effort</h3>
+        <span id="effortSavedBadge" class="hidden" style="font-size:11px;color:var(--success);font-weight:600">✓ Saved</span>
+      </div>
+      <p class="text-muted text-small" style="margin-bottom:16px">
+        Controls how much thinking Claude applies. Higher effort = better content quality but slower and uses more tokens.
+      </p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="effort-btn" data-effort="low"
+          style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12.5px;transition:all .15s;text-align:left">
+          <div style="font-weight:600">Low</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Fastest · Draft quality</div>
+        </button>
+        <button class="effort-btn" data-effort="medium"
+          style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12.5px;transition:all .15s;text-align:left">
+          <div style="font-weight:600">Medium</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Balanced speed and quality</div>
+        </button>
+        <button class="effort-btn" data-effort="high"
+          style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12.5px;transition:all .15s;text-align:left">
+          <div style="font-weight:600">High</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Recommended · Best results</div>
+        </button>
+        <button class="effort-btn" data-effort="xhigh"
+          style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12.5px;transition:all .15s;text-align:left">
+          <div style="font-weight:600">Extra High</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Deep reasoning · Slower</div>
+        </button>
+        <button class="effort-btn" data-effort="max"
+          style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12.5px;transition:all .15s;text-align:left">
+          <div style="font-weight:600">Max</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Maximum quality · Slowest</div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Generation Engine -->
+    <div class="card">
+      <div class="card-header">
+        <h3>🧩 Generation Engine</h3>
+        <span id="engineSavedBadge" class="hidden" style="font-size:11px;color:var(--success);font-weight:600">✓ Saved</span>
+      </div>
+      <p class="text-muted text-small" style="margin-bottom:16px">
+        Which pipeline writes the article. Applies to all blogs. <strong>Native</strong> is the built-in 2-call pipeline.
+        <strong>SEO Machine</strong> drives the seomachine methodology (live <code>write.md</code> + per-blog brand context) and runs its Python quality gate (AI-watermark scrub + content score).
+      </p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="engine-btn" data-engine="native"
+          style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12.5px;transition:all .15s;text-align:left">
+          <div style="font-weight:600">Native</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Built-in 2-call pipeline (default)</div>
+        </button>
+        <button class="engine-btn" data-engine="seomachine"
+          style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12.5px;transition:all .15s;text-align:left">
+          <div style="font-weight:600">SEO Machine</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Upstream methodology + quality gate</div>
+        </button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="/assets/js/common.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+
+(async () => {
+  const me = await API.get('/api/auth/me');
+  if (!me || !me.loggedIn) { location.href = '/'; return; }
+  document.getElementById('sidebarUsername').textContent = me.username;
+  document.getElementById('avatarInitial').textContent = me.username[0].toUpperCase();
+  await Promise.all([refreshStatus(), loadModel(), fetchModels(), loadEffort(), loadEngine(), loadUsage()]);
+  // Refresh live usage every 2 min (server caches 60s + serves stale on rate-limit)
+  setInterval(loadUsage, 120000);
+})();
+
+// ── Claude usage limits ──
+function usageBarClass(pct) {
+  if (pct >= 90) return 'usage-bar danger';
+  if (pct >= 70) return 'usage-bar warn';
+  return 'usage-bar';
+}
+
+function fmtReset(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const diffMs = d - Date.now();
+  if (diffMs <= 0) return 'resetting…';
+  const mins = Math.round(diffMs / 60000);
+  const clockTime = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (mins < 60) return `resets in ${mins} min (at ${clockTime})`;
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  if (hrs < 24) return `resets in ${hrs} hr${rem ? ` ${rem} min` : ''} (at ${clockTime})`;
+  const days = Math.round(hrs / 24);
+  return `resets in ${days} day${days !== 1 ? 's' : ''} (at ${clockTime})`;
+}
+
+function usageRow(title, sub, block) {
+  if (!block || block.utilization == null) return '';
+  const pct = Math.min(100, Math.round(block.utilization));
+  return `
+    <div class="usage-row">
+      <div class="usage-meta">
+        <div class="u-title">${title}</div>
+        <div class="u-sub">${sub}${block.resets_at ? ` · ${fmtReset(block.resets_at)}` : ''}</div>
+      </div>
+      <div class="${usageBarClass(pct)}"><span style="width:${pct}%"></span></div>
+      <div class="usage-pct">${pct}% used</div>
+    </div>`;
+}
+
+async function loadUsage() {
+  const btn = document.getElementById('usageRefreshBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '↻ …'; }
+  const data = await API.get('/api/claude/usage');
+  if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
+
+  const body = document.getElementById('usageBody');
+  const fetched = document.getElementById('usageFetched');
+  if (!body) return;
+
+  if (!data || !data.available) {
+    body.innerHTML = `<div class="alert alert-warning" style="margin:0">
+      ${escHtml((data && data.reason) || 'Usage data unavailable.')}
+    </div>`;
+    fetched.textContent = '';
+    return;
+  }
+
+  const acct = [];
+  if (data.account?.name) acct.push(`<span class="pill">👤 ${escHtml(data.account.name)}</span>`);
+  if (data.organization?.name) acct.push(`<span class="pill">🏢 ${escHtml(data.organization.name)}</span>`);
+  if (data.subscription) acct.push(`<span class="pill">${escHtml(String(data.subscription))}</span>`);
+
+  let rows = '';
+  rows += usageRow('Current session', 'Rolling 5-hour limit', data.five_hour);
+  rows += usageRow('Weekly · All models', 'Rolling 7-day limit', data.seven_day);
+  rows += usageRow('Weekly · Opus', 'Rolling 7-day Opus limit', data.seven_day_opus);
+
+  if (data.extra_usage?.is_enabled && data.extra_usage.utilization != null) {
+    rows += usageRow('Extra usage', `Monthly credits`, { utilization: data.extra_usage.utilization });
+  }
+
+  const staleNote = data.stale
+    ? `<div class="alert alert-warning" style="margin:0 0 12px">${escHtml(data.reason || 'Claude usage API is rate-limiting refreshes — showing recent data.')}</div>`
+    : '';
+
+  body.innerHTML =
+    staleNote +
+    (acct.length ? `<div class="usage-account">${acct.join('')}</div>` : '') +
+    (rows || '<div class="text-muted text-small">No active limits reported.</div>');
+
+  fetched.textContent = `Last updated ${new Date(data.fetched_at || Date.now()).toLocaleTimeString()}`
+    + (data.stale ? ' · stale' : data.cached ? ' · cached' : '');
+}
+
+// ── Model selector ──
+let _envDefault = 'claude-sonnet-4-6';
+
+async function loadModel() {
+  const data = await API.get('/api/claude/model');
+  if (!data) return;
+  _envDefault = data.env_default;
+  document.getElementById('modelInput').value = data.active;
+  document.getElementById('modelEnvHint').textContent =
+    `Default from .env: ${data.env_default}${data.active !== data.env_default ? ' (overridden by UI selection)' : ''}`;
+  highlightModelBtn(data.active);
+}
+
+async function fetchModels() {
+  const btn = document.getElementById('refreshModelsBtn');
+  btn.disabled = true;
+  btn.textContent = '↻ …';
+  const data = await API.get('/api/claude/models');
+  btn.disabled = false;
+  btn.textContent = '↻ Refresh';
+  if (!data) return;
+
+  const list = document.getElementById('modelList');
+  const currentModel = document.getElementById('modelInput').value;
+
+  list.innerHTML = data.models.map(m => `
+    <button class="model-preset-btn" data-model="${m.id}"
+      onclick="selectModel('${m.id}')"
+      style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12.5px;text-align:left;transition:all .15s;min-width:160px">
+      <div style="font-weight:600">${escHtml(m.name)}</div>
+      <div style="font-size:10.5px;color:var(--text-muted);margin-top:2px">${escHtml(m.desc)}</div>
+    </button>`).join('');
+
+  document.getElementById('modelSource').textContent =
+    (data.source === 'api' || data.source === 'cli')
+      ? `✓ Live list from Anthropic (${data.source === 'cli' ? 'your Claude login' : 'API key'}) — ${data.models.length} models available`
+      : `Built-in model list · connect Claude to auto-fetch newly launched models`;
+
+  highlightModelBtn(currentModel);
+}
+
+function selectModel(modelId) {
+  document.getElementById('modelInput').value = modelId;
+  highlightModelBtn(modelId);
+}
+
+function highlightModelBtn(model) {
+  document.querySelectorAll('.model-preset-btn').forEach(btn => {
+    const isActive = btn.dataset.model === model;
+    btn.style.borderColor = isActive ? 'var(--primary)' : 'var(--border)';
+    btn.style.background  = isActive ? 'rgba(99,102,241,.12)' : 'var(--surface2)';
+    btn.style.color       = isActive ? 'var(--primary)' : 'var(--text)';
+  });
+}
+
+async function saveModel() {
+  const model = document.getElementById('modelInput').value.trim();
+  if (!model) { showToast('Enter a model ID', 'warning'); return; }
+  const data = await API.post('/api/claude/model', { model });
+  if (data?.ok) {
+    highlightModelBtn(model);
+    document.getElementById('modelEnvHint').textContent =
+      `Default from .env: ${_envDefault}${model !== _envDefault ? ' (overridden by UI selection)' : ''}`;
+    const badge = document.getElementById('modelSavedBadge');
+    badge.classList.remove('hidden');
+    setTimeout(() => badge.classList.add('hidden'), 3000);
+    showToast(`Model set to ${model}`, 'success');
+  } else {
+    showToast(data?.error || 'Failed to save', 'warning');
+  }
+}
+
+// ── Effort selector ──
+async function loadEffort() {
+  const data = await API.get('/api/claude/effort');
+  if (!data) return;
+  highlightEffortBtn(data.active);
+}
+
+function highlightEffortBtn(effort) {
+  document.querySelectorAll('.effort-btn').forEach(btn => {
+    const isActive = btn.dataset.effort === effort;
+    btn.style.borderColor = isActive ? 'var(--primary)' : 'var(--border)';
+    btn.style.background  = isActive ? 'rgba(99,102,241,.12)' : 'var(--surface2)';
+    btn.style.color       = isActive ? 'var(--primary)' : 'var(--text)';
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.effort-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const effort = btn.dataset.effort;
+      const data = await API.post('/api/claude/effort', { effort });
+      if (data?.ok) {
+        highlightEffortBtn(effort);
+        const badge = document.getElementById('effortSavedBadge');
+        badge.classList.remove('hidden');
+        setTimeout(() => badge.classList.add('hidden'), 3000);
+        showToast(`Effort set to ${effort}`, 'success');
+      } else {
+        showToast(data?.error || 'Failed', 'warning');
+      }
+    });
+  });
+
+  document.querySelectorAll('.engine-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const engine = btn.dataset.engine;
+      const data = await API.post('/api/claude/engine', { engine });
+      if (data?.ok) {
+        highlightEngineBtn(engine);
+        const badge = document.getElementById('engineSavedBadge');
+        badge.classList.remove('hidden');
+        setTimeout(() => badge.classList.add('hidden'), 3000);
+        showToast(`Engine set to ${engine === 'seomachine' ? 'SEO Machine' : 'Native'}`, 'success');
+      } else {
+        showToast(data?.error || 'Failed', 'warning');
+      }
+    });
+  });
+});
+
+// ── Engine selector ──
+async function loadEngine() {
+  const data = await API.get('/api/claude/engine');
+  if (!data) return;
+  highlightEngineBtn(data.active);
+}
+
+function highlightEngineBtn(engine) {
+  document.querySelectorAll('.engine-btn').forEach(btn => {
+    const isActive = btn.dataset.engine === engine;
+    btn.style.borderColor = isActive ? 'var(--primary)' : 'var(--border)';
+    btn.style.background  = isActive ? 'rgba(99,102,241,.12)' : 'var(--surface2)';
+    btn.style.color       = isActive ? 'var(--primary)' : 'var(--text)';
+  });
+}
+
+async function refreshStatus() {
+  document.getElementById('refreshBtn').disabled = true;
+  const data = await API.get('/api/claude/status');
+  document.getElementById('refreshBtn').disabled = false;
+  if (!data) return;
+
+  // CLI card
+  const cli = data.cli;
+  const cardCli = document.getElementById('cardCli');
+  if (cli.installed && cli.authenticated) {
+    cardCli.className = 'status-card mode-active';
+    document.getElementById('cliValue').innerHTML = '<span class="text-success">✓ Connected</span>';
+    document.getElementById('cliSub').textContent = cli.version || '';
+  } else if (cli.installed) {
+    cardCli.className = 'status-card mode-inactive';
+    document.getElementById('cliValue').innerHTML = '<span class="text-warning">⚠ Not Authenticated</span>';
+    document.getElementById('cliSub').textContent = 'Run "claude" in terminal to login';
+  } else {
+    cardCli.className = 'status-card mode-inactive';
+    document.getElementById('cliValue').innerHTML = '<span class="text-danger">✗ Not Installed</span>';
+    document.getElementById('cliSub').textContent = 'npm install -g @anthropic-ai/claude-code';
+  }
+
+  // Active mode
+  const modeBox = document.getElementById('activeModeBox');
+  const modeLabels = { cli: '💻 Using Claude CLI Session', none: '❌ No Connection' };
+  const modeTypes = { cli: 'success', sdk: 'info', none: 'error' };
+  const m = data.active_mode;
+  modeBox.innerHTML = `
+    <div class="alert alert-${modeTypes[m]}" style="margin:0">
+      <strong>Active Mode:</strong> ${modeLabels[m] || m}
+      &nbsp;·&nbsp; Model: <code>${data.model}</code>
+    </div>
+  `;
+}
+
+async function testConnection() {
+  const btn = document.getElementById('testBtn');
+  const resultEl = document.getElementById('testResult');
+  btn.disabled = true;
+  resultEl.textContent = 'Testing...';
+
+  const data = await API.post('/api/claude/test');
+  btn.disabled = false;
+  if (data && data.ok) {
+    resultEl.innerHTML = `<span class="text-success">✓ ${data.mode === 'cli' ? 'CLI' : 'API'} connected! Response: "${data.response}"</span>`;
+  } else {
+    resultEl.innerHTML = `<span class="text-danger">✗ ${data?.error || 'Connection failed'}</span>`;
+  }
+}
+
+</script>
+</body>
+</html>

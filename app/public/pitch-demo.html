@@ -1,0 +1,1565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CT Automation — Live Demo</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#06090f;--s1:#0d1117;--s2:#161b22;--s3:#21262d;
+  --bord:#30363d;--pri:#6366f1;--pri2:#818cf8;--acc:#38bdf8;
+  --ok:#22c55e;--warn:#f59e0b;--danger:#ef4444;
+  --txt:#e6edf3;--muted:#8b949e;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans-serif}
+body{display:flex}
+
+/* ── Sidebar ── */
+.sb{width:210px;min-width:210px;background:var(--s1);border-right:1px solid var(--bord);display:flex;flex-direction:column}
+.sb-brand{padding:18px 16px 12px;border-bottom:1px solid var(--bord)}
+.sb-logo{font-size:14px;font-weight:700;color:var(--pri)}
+.sb-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.sb-nav{display:flex;flex-direction:column;padding:8px;flex:1;gap:1px}
+.ni{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:7px;font-size:12.5px;color:var(--muted);text-decoration:none;background:none;border:none;cursor:pointer;width:100%;transition:background .12s,color .12s}
+.ni:hover{background:var(--s2);color:var(--txt)}
+.ni.active{background:rgba(99,102,241,.15);color:var(--pri);font-weight:600}
+.ni .ic{font-size:14px}
+.sb-foot{padding:8px 8px 14px;border-top:1px solid var(--bord)}
+
+/* ── Main ── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.hdr{padding:12px 20px 0;display:flex;align-items:center;justify-content:space-between;z-index:10;position:relative}
+.hdr-title{font-size:11px;color:var(--pri);letter-spacing:2px;text-transform:uppercase;font-weight:600}
+.hdr-counter{font-size:11px;color:var(--muted)}
+
+/* ── Theater ── */
+.theater{flex:1;position:relative;overflow:hidden}
+#bgCanvas{position:absolute;inset:0;z-index:0}
+#fxCanvas{position:absolute;inset:0;z-index:5;pointer-events:none}
+
+/* ── Scenes ── */
+.scene{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .5s ease;z-index:2}
+.scene.active{opacity:1;pointer-events:auto}
+
+/* ── Characters ── */
+.char-wrap{position:absolute;bottom:0;transition:transform .05s linear}
+.man-svg,.bot-svg{display:block;overflow:visible;filter:drop-shadow(0 8px 24px rgba(0,0,0,.7))}
+
+/* Walking leg/arm keyframes applied via JS class */
+@keyframes legLfwd{ 0%{transform:rotate(-25deg)} 100%{transform:rotate(25deg)} }
+@keyframes legRfwd{ 0%{transform:rotate(25deg)} 100%{transform:rotate(-25deg)} }
+@keyframes armLfwd{ 0%{transform:rotate(20deg)} 100%{transform:rotate(-20deg)} }
+@keyframes armRfwd{ 0%{transform:rotate(-20deg)} 100%{transform:rotate(20deg)} }
+@keyframes breathe{ 0%,100%{transform:scaleY(1)} 50%{transform:scaleY(.97)} }
+@keyframes botHover{ 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+@keyframes celebrate{ 0%,100%{transform:translateY(0) rotate(0)} 25%{transform:translateY(-30px) rotate(-5deg)} 75%{transform:translateY(-20px) rotate(5deg)} }
+@keyframes eyeGlow{0%,100%{opacity:.7}50%{opacity:1}}
+@keyframes cursorMove{}
+
+.walking .ll{animation:legLfwd .35s ease-in-out infinite alternate;transform-origin:50% 0}
+.walking .lr{animation:legRfwd .35s ease-in-out infinite alternate;transform-origin:50% 0}
+.walking .al{animation:armLfwd .35s ease-in-out infinite alternate;transform-origin:50% 0}
+.walking .ar{animation:armRfwd .35s ease-in-out infinite alternate;transform-origin:50% 0}
+.breathing .torso{animation:breathe 1.8s ease-in-out infinite}
+.hovering{animation:botHover 2.2s ease-in-out infinite}
+.celebrating{animation:celebrate .5s ease-in-out infinite}
+
+/* ── Scene 1 ── */
+#s1{background:radial-gradient(ellipse at 55% 35%,#0e1c3a 0%,#06090f 65%)}
+.floor-grid{
+  position:absolute;bottom:0;left:0;right:0;height:180px;
+  background:
+    repeating-linear-gradient(90deg,transparent,transparent 59px,rgba(99,102,241,.09) 60px),
+    repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(99,102,241,.07) 40px);
+  transform:perspective(600px) rotateX(55deg);
+  transform-origin:bottom center;
+}
+.desk{
+  position:absolute;bottom:118px;left:50%;transform:translateX(-50%);
+  width:320px;height:16px;
+  background:linear-gradient(180deg,#A0782A 0%,#6B4F1A 100%);
+  border-radius:4px 4px 2px 2px;
+  box-shadow:0 6px 0 #4A3010,0 16px 30px rgba(0,0,0,.6);
+}
+.desk::before,.desk::after{
+  content:'';position:absolute;bottom:-30px;
+  width:10px;height:30px;background:#5a4010;border-radius:2px;
+}
+.desk::before{left:30px} .desk::after{right:30px}
+
+/* ── Floating document card (Scene 1) ── */
+.doc-card{
+  position:absolute;
+  top:50%;left:55%;
+  transform:translate(-50%,-52%) scale(.7);
+  opacity:0;
+  width:380px;
+  background:var(--s2);
+  border:1px solid var(--bord);
+  border-radius:14px;
+  overflow:hidden;
+  box-shadow:0 0 0 1px rgba(99,102,241,.15), 0 24px 60px rgba(0,0,0,.7), 0 0 40px rgba(99,102,241,.08);
+  transition:opacity .55s ease, transform .55s cubic-bezier(.22,.68,0,1.2);
+}
+.doc-card.show{opacity:1;transform:translate(-50%,-52%) scale(1)}
+.doc-topbar{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 16px;
+  background:var(--s1);border-bottom:1px solid var(--bord);
+}
+.doc-dot{width:9px;height:9px;border-radius:50%}
+.doc-title{font-size:11px;color:var(--muted);margin-left:6px;flex:1}
+.doc-badge{font-size:9px;color:var(--ok);background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);padding:2px 7px;border-radius:10px}
+.doc-body{padding:16px 18px}
+.doc-heading{font-size:13px;font-weight:700;color:var(--txt);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+/* Spreadsheet table */
+.sheet-tbl{width:100%;border-collapse:collapse}
+.sheet-tbl th{
+  text-align:left;padding:6px 10px;
+  font-size:10px;font-weight:700;color:var(--pri);
+  text-transform:uppercase;letter-spacing:.5px;
+  border-bottom:1px solid var(--bord);background:rgba(99,102,241,.04);
+}
+.sheet-row{
+  opacity:0;transform:translateX(-10px);
+  transition:opacity .35s ease,transform .35s cubic-bezier(.22,.68,0,1.2);
+}
+.sheet-row.show{opacity:1;transform:translateX(0)}
+.sheet-row td{
+  padding:8px 10px;
+  font-size:12px;
+  border-bottom:1px solid rgba(48,54,61,.4);
+}
+.sheet-row:last-child td{border-bottom:none}
+.td-num{color:var(--pri);font-weight:700;font-size:11px}
+.td-title{color:var(--txt);font-weight:500}
+.td-kw{color:var(--acc);font-size:11px}
+.td-date{color:var(--ok);font-size:11px;white-space:nowrap}
+/* Cursor-blink on last written row */
+.td-title.typing::after{content:'|';color:var(--pri);animation:blink .7s step-start infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* ── Scene 2 ── */
+#s2{background:radial-gradient(ellipse at 40% 50%,#0e1a30 0%,#06090f 65%)}
+.holo-menu{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);
+  background:rgba(13,17,23,.85);border:1px solid rgba(99,102,241,.5);
+  border-radius:16px;padding:16px 20px;min-width:220px;
+  box-shadow:0 0 40px rgba(99,102,241,.2),inset 0 1px 0 rgba(255,255,255,.05);
+  backdrop-filter:blur(16px);
+  opacity:0;transform:translate(-50%,-60%) scaleY(.3);
+  transition:opacity .5s,transform .5s cubic-bezier(.22,.68,0,1.2);
+}
+.holo-menu.show{opacity:1;transform:translate(-50%,-60%) scaleY(1)}
+.hm-head{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:2px;margin-bottom:10px;border-bottom:1px solid var(--bord);padding-bottom:6px}
+.hm-item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:12px;color:var(--muted);margin-bottom:1px;transition:all .2s}
+.hm-item.hi{background:rgba(99,102,241,.2);color:var(--pri);font-weight:600;box-shadow:0 0 14px rgba(99,102,241,.3);animation:pulse-item 1.2s ease-in-out infinite}
+@keyframes pulse-item{0%,100%{box-shadow:0 0 14px rgba(99,102,241,.3)}50%{box-shadow:0 0 24px rgba(99,102,241,.6)}}
+.cursor-hand{position:absolute;font-size:28px;opacity:0;pointer-events:none;
+  transition:left .8s cubic-bezier(.22,.68,0,1.1),top .8s cubic-bezier(.22,.68,0,1.1),opacity .3s}
+
+/* ── Scene 3 ── */
+#s3{background:radial-gradient(ellipse at 50% 35%,#0e1a30 0%,#06090f 65%)}
+.screen-frame{
+  width:640px;background:var(--s1);border:1px solid var(--bord);
+  border-radius:14px;overflow:hidden;
+  box-shadow:0 24px 60px rgba(0,0,0,.7);
+  transform:scale(.85);opacity:0;
+  transition:transform .6s cubic-bezier(.22,.68,0,1.1),opacity .5s;
+}
+.screen-frame.show{transform:scale(1);opacity:1}
+.sf-bar{display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--s2);border-bottom:1px solid var(--bord)}
+.sf-dot{width:10px;height:10px;border-radius:50%}
+.sf-title{font-size:11px;color:var(--muted);margin-left:4px}
+.sf-body{padding:20px 24px;min-height:260px}
+
+/* Step indicator */
+.steps{display:flex;align-items:center;gap:6px;margin-bottom:18px}
+.sn{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;transition:all .4s}
+.sn.act{background:var(--pri);color:#fff;box-shadow:0 0 12px rgba(99,102,241,.5)}
+.sn.done{background:var(--ok);color:#fff}
+.sn.off{background:var(--s3);color:var(--muted)}
+.step-line{flex:1;height:2px;border-radius:2px;background:var(--bord);transition:background .4s}
+.step-line.done{background:var(--ok)}
+
+/* Blog cards (step 1) */
+.bcards{display:flex;gap:12px;margin-bottom:8px}
+.bcard{flex:1;padding:14px;border:2px solid var(--bord);border-radius:12px;text-align:center;cursor:pointer;transition:all .3s;transform:translateY(20px);opacity:0}
+.bcard.show{transform:translateY(0);opacity:1}
+.bcard-icon{font-size:30px;margin-bottom:6px}
+.bcard-name{font-size:12px;font-weight:600;margin-bottom:2px}
+.bcard-domain{font-size:10px;color:var(--muted)}
+.bcard.sel{border-color:var(--pri);background:rgba(99,102,241,.1);box-shadow:0 0 20px rgba(99,102,241,.2)}
+.bcard.sel::after{content:'✓';position:absolute;top:6px;right:8px;color:var(--pri);font-size:14px;font-weight:700}
+.bcard{position:relative}
+
+/* Job table (step 2) */
+.jtbl{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:14px}
+.jtbl th{text-align:left;padding:5px 7px;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bord)}
+.jtbl td{padding:7px;border-bottom:1px solid rgba(48,54,61,.4);transition:background .3s}
+.jtbl tr.dup td{background:rgba(245,158,11,.05)}
+.jtbl tr.dup-anim td{background:rgba(245,158,11,.12)}
+.bw{background:rgba(245,158,11,.15);color:var(--warn);border:1px solid rgba(245,158,11,.3);padding:2px 6px;border-radius:4px;font-size:9px}
+.bg{background:rgba(34,197,94,.12);color:var(--ok);border:1px solid rgba(34,197,94,.3);padding:2px 6px;border-radius:4px;font-size:9px}
+.qbtn{width:100%;padding:11px;background:var(--pri);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 20px rgba(99,102,241,.4);position:relative;overflow:hidden;transition:transform .1s}
+.qbtn:active{transform:scale(.97)}
+.qbtn.pulse-btn{animation:qpulse 1s ease-in-out 2}
+@keyframes qpulse{0%,100%{box-shadow:0 4px 20px rgba(99,102,241,.4)}50%{box-shadow:0 4px 40px rgba(99,102,241,.8)}}
+.ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,.4);transform:scale(0);animation:ripple-anim .6s ease-out forwards;pointer-events:none}
+@keyframes ripple-anim{to{transform:scale(4);opacity:0}}
+.toast{position:fixed;top:20px;right:20px;background:var(--ok);color:#fff;padding:10px 18px;border-radius:10px;font-size:12px;font-weight:600;box-shadow:0 4px 20px rgba(34,197,94,.4);z-index:100;transform:translateY(-60px);opacity:0;transition:all .4s cubic-bezier(.22,.68,0,1.2)}
+.toast.show{transform:translateY(0);opacity:1}
+
+/* ── Scene 4b — Generation Pipeline ── */
+#s4b{background:radial-gradient(ellipse at 35% 40%,#091a30 0%,#06090f 70%)}
+.pipe-wrap{
+  display:flex;gap:20px;width:720px;height:360px;
+  position:relative;z-index:2;
+}
+/* Left: vertical pipeline stages */
+.pipe-stages{
+  width:200px;display:flex;flex-direction:column;justify-content:center;
+  padding:4px 0;gap:0;
+}
+.ps{
+  display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;
+  border:1px solid var(--bord);background:var(--s2);
+  position:relative;transition:opacity .4s cubic-bezier(.22,.68,0,1.2), border-color .4s, box-shadow .4s, transform .4s cubic-bezier(.22,.68,0,1.2);
+  opacity:0;transform:translateX(-10px);
+}
+.ps.lit{opacity:1;transform:translateX(0);border-color:var(--pri);box-shadow:0 0 12px rgba(99,102,241,.25)}
+.ps.done{border-color:var(--ok);box-shadow:0 0 10px rgba(34,197,94,.2)}
+.ps.done .ps-icon::after{content:'✓';position:absolute;top:-4px;right:-4px;font-size:9px;background:var(--ok);color:#fff;border-radius:50%;width:14px;height:14px;display:flex;align-items:center;justify-content:center;line-height:14px}
+.ps-icon{font-size:18px;position:relative;flex-shrink:0}
+.ps-name{font-size:11px;font-weight:600;color:var(--txt)}
+.ps-sub{font-size:9px;color:var(--muted)}
+/* Connector lines */
+.ps-conn{
+  width:2px;height:8px;margin:0 19px;border-radius:2px;
+  background:rgba(48,54,61,.6);transition:background .5s;flex-shrink:0;
+  align-self:center;
+}
+.ps-conn.flow{background:var(--ok);box-shadow:0 0 6px rgba(34,197,94,.5)}
+/* Right: detail panel */
+.pipe-detail{
+  flex:1;display:flex;flex-direction:column;gap:10px;
+}
+.pd-screen{
+  flex:1;background:var(--s2);border:1px solid var(--bord);
+  border-radius:12px;overflow:hidden;
+  display:flex;flex-direction:column;
+}
+.pd-bar{
+  display:flex;align-items:center;gap:7px;padding:9px 14px;
+  background:var(--s1);border-bottom:1px solid var(--bord);flex-shrink:0;
+}
+.pd-bar-title{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:1px}
+.pd-body{flex:1;padding:12px 14px;overflow:hidden;font-size:11px;position:relative;min-height:0}
+/* Detail content panels — one per stage, shown/hidden */
+.pd-panel{position:absolute;inset:12px 14px;opacity:0;pointer-events:none;transition:opacity .35s;overflow:hidden}
+.pd-panel.show{opacity:1}
+/* Context loading */
+.ctx-file{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:11px;color:var(--muted);
+  opacity:0;transform:translateX(-8px);transition:opacity .3s,transform .3s}
+.ctx-file.show{opacity:1;transform:translateX(0)}
+.ctx-ok{color:var(--ok);font-size:10px;margin-left:auto}
+/* Token counts */
+.tok-row{display:flex;justify-content:space-between;padding:4px 0;font-size:11px;border-bottom:1px solid rgba(48,54,61,.4)}
+.tok-row .tk{color:var(--acc);font-weight:600}
+.tok-total{display:flex;justify-content:space-between;padding:6px 0 0;font-size:12px;font-weight:700;color:var(--txt)}
+/* JSON preview */
+.json-pre{
+  font-family:monospace;font-size:9.5px;color:var(--txt);
+  background:rgba(0,0,0,.3);border-radius:6px;padding:10px;
+  line-height:1.6;white-space:pre;overflow:hidden;
+  border:1px solid rgba(48,54,61,.6);
+}
+.jk{color:#79c0ff}.jv{color:#a5d6ff}.js{color:#a8ff78}.jn{color:#ff7b72}
+/* Word counter */
+.wc-big{font-size:52px;font-weight:800;color:var(--pri);line-height:1;margin-bottom:4px;transition:color .4s}
+.wc-big.done{color:var(--ok)}
+.wc-label{font-size:11px;color:var(--muted);margin-bottom:12px}
+.article-preview{
+  font-size:10px;color:var(--muted);line-height:1.7;
+  border-left:2px solid var(--pri);padding-left:10px;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+}
+/* Block list */
+.block-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:10px;
+  opacity:0;transform:translateY(4px);transition:opacity .25s,transform .25s}
+.block-row.show{opacity:1;transform:translateY(0)}
+.block-tag{font-family:monospace;font-size:9px;color:var(--pri2);background:rgba(99,102,241,.1);
+  padding:1px 6px;border-radius:3px;border:1px solid rgba(99,102,241,.2)}
+.block-cnt{margin-left:auto;color:var(--muted);font-size:9px}
+/* Image fetch */
+.img-step{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:11px;
+  opacity:0;transform:translateY(4px);transition:opacity .3s,transform .3s}
+.img-step.show{opacity:1;transform:translateY(0)}
+.img-step-icon{font-size:16px;flex-shrink:0}
+.img-placeholder{
+  width:80px;height:55px;border-radius:6px;
+  background:linear-gradient(135deg,rgba(99,102,241,.3),rgba(56,189,248,.2));
+  border:1px solid rgba(99,102,241,.3);display:flex;align-items:center;justify-content:center;
+  font-size:20px;margin-left:auto;flex-shrink:0;
+  transition:opacity .5s;
+}
+/* WP POST mockup */
+.api-block{
+  font-family:monospace;font-size:9px;background:rgba(0,0,0,.4);
+  border:1px solid var(--bord);border-radius:6px;padding:10px;line-height:1.8;
+  opacity:0;transition:opacity .4s;
+}
+.api-block.show{opacity:1}
+.api-method{color:#ff7b72;font-weight:700}
+.api-url{color:#79c0ff}
+.api-key{color:#d2a8ff}.api-val{color:#a8ff78}
+.api-resp{color:var(--ok);font-weight:600}
+/* WP draft badge */
+.draft-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  margin-top:10px;padding:6px 14px;background:rgba(34,197,94,.1);
+  border:1px solid rgba(34,197,94,.3);border-radius:20px;
+  font-size:11px;color:var(--ok);font-weight:600;
+  opacity:0;transform:scale(.8);transition:opacity .4s,transform .4s cubic-bezier(.22,.68,0,1.3);
+}
+.draft-badge.show{opacity:1;transform:scale(1)}
+/* Log strip at bottom of detail */
+.pipe-log{
+  height:38px;background:rgba(0,0,0,.5);border:1px solid var(--bord);
+  border-radius:8px;padding:0 12px;display:flex;align-items:center;
+  font-family:monospace;font-size:10px;color:var(--acc);overflow:hidden;
+  flex-shrink:0;
+}
+.log-tick::before{content:'▶ ';color:var(--pri)}
+@keyframes slideLog{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* ── Scene 4 ── */
+#s4{background:radial-gradient(ellipse at 30% 50%,#091a30 0%,#06090f 65%)}
+.gen-layout{display:flex;gap:16px;width:680px;position:relative;z-index:1}
+.jcards{flex:1;display:flex;flex-direction:column;gap:7px}
+.jcard{
+  background:var(--s2);border:1px solid var(--bord);border-radius:9px;
+  padding:10px 14px;display:flex;align-items:center;justify-content:space-between;
+  font-size:11px;opacity:0;transform:translateX(-20px);
+  transition:opacity .3s,transform .3s,border-color .3s,box-shadow .3s;
+}
+.jcard.show{opacity:1;transform:translateX(0)}
+.jcard.generating{border-color:rgba(99,102,241,.5);box-shadow:0 0 12px rgba(99,102,241,.2)}
+.jcard.posting{border-color:rgba(245,158,11,.5);box-shadow:0 0 12px rgba(245,158,11,.2)}
+.jcard.drafted{border-color:rgba(34,197,94,.5);box-shadow:0 0 12px rgba(34,197,94,.2)}
+.jtitle{flex:1;color:var(--muted);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+.jst{font-size:10px;padding:3px 8px;border-radius:12px;font-weight:600;
+  animation:stflip .3s ease forwards;transform-origin:center}
+@keyframes stflip{from{opacity:0;transform:rotateX(90deg)}to{opacity:1;transform:rotateX(0)}}
+.st-p{background:rgba(139,148,158,.1);color:var(--muted)}
+.st-g{background:rgba(99,102,241,.15);color:var(--pri2)}
+.st-po{background:rgba(245,158,11,.15);color:var(--warn)}
+.st-d{background:rgba(34,197,94,.15);color:var(--ok)}
+
+.ai-box{
+  width:190px;background:var(--s2);border:1px solid var(--bord);
+  border-radius:14px;padding:14px;display:flex;flex-direction:column;align-items:center;
+}
+.ai-ring{
+  width:72px;height:72px;border-radius:50%;
+  border:2px solid rgba(99,102,241,.3);
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:8px;position:relative;
+  transition:border-color .5s,box-shadow .5s;
+}
+.ai-ring.active{
+  border-color:var(--pri);
+  box-shadow:0 0 30px rgba(99,102,241,.5);
+  animation:ring-spin 3s linear infinite;
+}
+@keyframes ring-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.ai-inner{
+  position:absolute;width:56px;height:56px;border-radius:50%;
+  background:radial-gradient(circle,rgba(99,102,241,.3) 0%,rgba(13,17,23,.9) 70%);
+  font-size:28px;display:flex;align-items:center;justify-content:center;
+  animation:none;
+}
+.ai-ring.active .ai-inner{animation:ai-pulse 1.5s ease-in-out infinite}
+@keyframes ai-pulse{0%,100%{background:radial-gradient(circle,rgba(99,102,241,.3) 0%,rgba(13,17,23,.9) 70%)}50%{background:radial-gradient(circle,rgba(99,102,241,.6) 0%,rgba(13,17,23,.9) 70%)}}
+.ai-lbl{font-size:10px;color:var(--pri2);font-weight:600;margin-bottom:10px;letter-spacing:.5px}
+.log-box{width:100%;background:rgba(0,0,0,.4);border-radius:6px;padding:8px;
+  font-family:monospace;font-size:8.5px;height:108px;overflow:hidden}
+.logln{color:var(--muted);line-height:1.7;opacity:0;height:0;overflow:hidden;transition:opacity .25s,height .2s}
+.logln.show{opacity:1;height:auto}
+.logln.ok{color:var(--ok)}
+.logln.info{color:var(--acc)}
+.cost-pill{
+  display:flex;align-items:center;gap:5px;margin-top:8px;
+  padding:4px 10px;background:rgba(34,197,94,.08);
+  border:1px solid rgba(34,197,94,.2);border-radius:20px;
+  font-size:11px;color:var(--ok);font-weight:600;transition:color .3s;
+}
+
+/* ── Scene 5 ── */
+#s5{background:radial-gradient(ellipse at 50% 30%,#091a2e 0%,#06090f 65%)}
+.done-box{
+  background:var(--s1);border:1px solid var(--bord);border-radius:18px;
+  padding:28px 34px;text-align:center;position:relative;z-index:2;
+  box-shadow:0 24px 60px rgba(0,0,0,.6);
+  opacity:0;transform:translateY(30px);
+  transition:opacity .6s,transform .6s cubic-bezier(.22,.68,0,1.1);
+}
+.done-box.show{opacity:1;transform:translateY(0)}
+.done-h{font-size:20px;font-weight:700;margin-bottom:4px}
+.done-sub{font-size:12px;color:var(--muted);margin-bottom:18px}
+.wp-row{display:flex;gap:8px;justify-content:center;margin-bottom:18px}
+.wpc{
+  background:var(--s2);border:1px solid var(--bord);border-radius:8px;
+  padding:10px 12px;min-width:88px;text-align:center;
+  opacity:0;transform:scale(.7) translateY(10px);
+  transition:opacity .35s,transform .35s cubic-bezier(.22,.68,0,1.3);
+}
+.wpc.show{opacity:1;transform:scale(1) translateY(0)}
+.wpc-icon{font-size:20px;margin-bottom:4px}
+.wpc-lbl{color:var(--ok);font-size:9px;font-weight:700}
+.wpc-id{font-size:8px;color:var(--muted)}
+.stats-row{display:flex;gap:12px;justify-content:center;margin-bottom:16px}
+.sbox{background:var(--s2);border:1px solid var(--bord);border-radius:10px;padding:12px 18px;min-width:100px;text-align:center}
+.sval{font-size:22px;font-weight:700;color:var(--pri);margin-bottom:2px;transition:color .5s}
+.sval.g{color:var(--ok)}
+.slbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.done-footer{background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.2);border-radius:8px;padding:10px;font-size:11px;color:var(--ok)}
+
+/* ── Caption bar ── */
+.caption-bar{
+  position:absolute;bottom:60px;left:50%;transform:translateX(-50%);
+  background:rgba(13,17,23,.88);border:1px solid rgba(99,102,241,.25);
+  border-radius:12px;padding:9px 22px;font-size:12px;color:var(--txt);
+  backdrop-filter:blur(12px);z-index:20;white-space:nowrap;
+  opacity:0;transition:opacity .4s;
+}
+.caption-bar.show{opacity:1}
+
+/* ── Controls ── */
+.ctrl-bar{
+  padding:12px 20px;display:flex;align-items:center;justify-content:space-between;
+  border-top:1px solid var(--bord);background:var(--s1);z-index:10;position:relative;
+}
+.cb-left{display:flex;gap:8px}
+.cbtn{
+  padding:6px 16px;border-radius:7px;font-size:11.5px;font-weight:600;
+  border:1px solid var(--bord);background:var(--s2);color:var(--txt);
+  cursor:pointer;transition:all .15s;
+}
+.cbtn:hover{border-color:var(--pri);color:var(--pri)}
+.cbtn.pri{background:var(--pri);border-color:var(--pri);color:#fff}
+.cbtn:disabled{opacity:.35;cursor:default}
+.prog-wrap{flex:1;max-width:180px;height:3px;background:var(--bord);border-radius:3px;overflow:hidden;margin:0 16px}
+.prog-fill{height:100%;background:var(--pri);border-radius:3px;width:0%;transition:width linear}
+.sname{font-size:10.5px;color:var(--muted);min-width:130px;text-align:center}
+.dots{display:flex;gap:7px;align-items:center}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--bord);cursor:pointer;transition:all .2s}
+.dot.active{background:var(--pri);transform:scale(1.3)}
+.dot.done{background:var(--ok)}
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sb">
+  <div class="sb-brand"><div class="sb-logo">⚡ CT Automation</div><div class="sb-sub">Content Auto-Draft Tool</div></div>
+  <nav class="sb-nav">
+    <a href="/dashboard"   class="ni"><span class="ic">📊</span> Dashboard</a>
+    <a href="/jobs"        class="ni"><span class="ic">📋</span> All Jobs</a>
+    <a href="/upload"      class="ni"><span class="ic">📤</span> Upload Sheet</a>
+    <a href="/settings"    class="ni"><span class="ic">⚙️</span> Blog Settings</a>
+    <a href="/claude-setup"class="ni"><span class="ic">🤖</span> Claude Setup</a>
+    <a href="/pitch-demo"  class="ni active"><span class="ic">🎬</span> Product Demo</a>
+  </nav>
+  <div class="sb-foot"><a href="/" class="ni" style="color:var(--danger)"><span class="ic">🚪</span> Logout</a></div>
+</aside>
+
+<div class="main">
+  <div class="hdr">
+    <span class="hdr-title" id="hdrTitle">Scene 1 — The Brief</span>
+    <span class="hdr-counter" id="hdrCount">1 / 6</span>
+  </div>
+
+  <div class="theater" id="theater">
+    <canvas id="bgCanvas"></canvas>
+    <canvas id="fxCanvas"></canvas>
+
+    <!-- ════════════════════════════
+         SCENE 1 — The Brief
+    ════════════════════════════ -->
+    <div class="scene active" id="s1">
+      <div class="floor-grid"></div>
+      <div class="desk" id="desk1"></div>
+
+      <!-- Floating document card — faces the viewer, no 3D transforms -->
+      <div class="doc-card" id="docCard1">
+        <div class="doc-topbar">
+          <div class="doc-dot" style="background:#ff5f57"></div>
+          <div class="doc-dot" style="background:#febc2e"></div>
+          <div class="doc-dot" style="background:#28c840"></div>
+          <div class="doc-title">blog-calendar-jan-2025.xlsx</div>
+          <div class="doc-badge">5 posts</div>
+        </div>
+        <div class="doc-body">
+          <div class="doc-heading">📋 Blog Content Calendar — January 2025</div>
+          <table class="sheet-tbl">
+            <thead>
+              <tr><th>#</th><th>Title</th><th>Keyword</th><th>Date</th></tr>
+            </thead>
+            <tbody>
+              <tr class="sheet-row" id="sr1"><td class="td-num">1</td><td class="td-title">Digital Credentials for Government</td><td class="td-kw">identity</td><td class="td-date">Jan 15</td></tr>
+              <tr class="sheet-row" id="sr2"><td class="td-num">2</td><td class="td-title">AI in Manufacturing 2025</td><td class="td-kw">automation</td><td class="td-date">Jan 16</td></tr>
+              <tr class="sheet-row" id="sr3"><td class="td-num">3</td><td class="td-title">Blockchain Supply Chain</td><td class="td-kw">blockchain</td><td class="td-date">Jan 17</td></tr>
+              <tr class="sheet-row" id="sr4"><td class="td-num">4</td><td class="td-title">Zero Trust Security Model</td><td class="td-kw">zero trust</td><td class="td-date">Jan 18</td></tr>
+              <tr class="sheet-row" id="sr5"><td class="td-num">5</td><td class="td-title">NFT Ticketing Revolution</td><td class="td-kw">nft tickets</td><td class="td-date">Jan 19</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Man SVG character — left side, feet on floor -->
+      <div class="char-wrap" id="man1" style="left:-120px;bottom:100px">
+        <svg class="man-svg" width="72" height="148" viewBox="0 0 72 148">
+          <g class="ll" style="transform-origin:29px 102px"><rect x="20" y="102" width="18" height="48" rx="9" fill="#1a1a2e"/><ellipse cx="24" cy="152" rx="12" ry="5" fill="#0a0a14"/></g>
+          <g class="lr" style="transform-origin:43px 102px"><rect x="34" y="102" width="18" height="48" rx="9" fill="#1a1a2e"/><ellipse cx="48" cy="152" rx="12" ry="5" fill="#0a0a14"/></g>
+          <g class="al" style="transform-origin:14px 56px"><rect x="6" y="56" width="14" height="42" rx="7" fill="#2d3e9c"/><circle cx="13" cy="100" r="7" fill="#f4c97a"/></g>
+          <g class="ar" style="transform-origin:58px 56px"><rect x="52" y="56" width="14" height="42" rx="7" fill="#2d3e9c"/><circle cx="59" cy="100" r="7" fill="#f4c97a"/></g>
+          <g class="torso"><rect x="16" y="52" width="40" height="54" rx="5" fill="#2d3e9c"/><rect x="30" y="53" width="12" height="50" rx="2" fill="#f0f4ff"/><polygon points="36,55 32,70 36,76 40,70" fill="#e53e3e"/></g>
+          <circle cx="36" cy="30" r="22" fill="#f4c97a"/>
+          <ellipse cx="36" cy="13" rx="21" ry="10" fill="#3d2800"/>
+          <circle cx="28" cy="28" r="3.5" fill="#1a1a1a"/><circle cx="29" cy="26.5" r="1.2" fill="#fff"/>
+          <circle cx="44" cy="28" r="3.5" fill="#1a1a1a"/><circle cx="45" cy="26.5" r="1.2" fill="#fff"/>
+          <path d="M28 37 Q36 44 44 37" stroke="#8b5e3c" fill="none" stroke-width="2" stroke-linecap="round"/>
+          <ellipse cx="14" cy="30" rx="4" ry="5.5" fill="#e8b840"/>
+          <ellipse cx="58" cy="30" rx="4" ry="5.5" fill="#e8b840"/>
+        </svg>
+      </div>
+
+      <div class="caption-bar" id="cap1">📋 Client walks in with a blog content calendar</div>
+    </div>
+
+    <!-- ════════════════════════════
+         SCENE 2 — The Machine
+    ════════════════════════════ -->
+    <div class="scene" id="s2">
+      <div class="floor-grid"></div>
+      <div class="desk"></div>
+
+      <!-- Man (static left) -->
+      <div class="char-wrap" id="man2" style="left:60px;bottom:116px">
+        <svg class="man-svg" width="72" height="148" viewBox="0 0 72 148">
+          <g><rect x="20" y="102" width="18" height="48" rx="9" fill="#1a1a2e"/><ellipse cx="24" cy="152" rx="12" ry="5" fill="#0a0a14"/></g>
+          <g><rect x="34" y="102" width="18" height="48" rx="9" fill="#1a1a2e"/><ellipse cx="48" cy="152" rx="12" ry="5" fill="#0a0a14"/></g>
+          <g id="m2al"><rect x="6" y="56" width="14" height="42" rx="7" fill="#2d3e9c"/><circle cx="13" cy="100" r="7" fill="#f4c97a"/></g>
+          <g><rect x="52" y="56" width="14" height="42" rx="7" fill="#2d3e9c"/><circle cx="59" cy="100" r="7" fill="#f4c97a"/></g>
+          <rect x="16" y="52" width="40" height="54" rx="5" fill="#2d3e9c"/><rect x="30" y="53" width="12" height="50" rx="2" fill="#f0f4ff"/><polygon points="36,55 32,70 36,76 40,70" fill="#e53e3e"/>
+          <circle cx="36" cy="30" r="22" fill="#f4c97a"/>
+          <ellipse cx="36" cy="13" rx="21" ry="10" fill="#3d2800"/>
+          <circle cx="28" cy="28" r="3.5" fill="#1a1a1a"/><circle cx="44" cy="28" r="3.5" fill="#1a1a1a"/>
+          <path d="M28 37 Q36 44 44 37" stroke="#8b5e3c" fill="none" stroke-width="2" stroke-linecap="round"/>
+          <ellipse cx="14" cy="30" rx="4" ry="5.5" fill="#e8b840"/><ellipse cx="58" cy="30" rx="4" ry="5.5" fill="#e8b840"/>
+        </svg>
+      </div>
+
+      <!-- Robot SVG -->
+      <div class="char-wrap hovering" id="bot2" style="right:-140px;bottom:120px">
+        <svg class="bot-svg" width="88" height="152" viewBox="0 0 88 152">
+          <rect x="40" y="0" width="8" height="18" rx="4" fill="#4a9eff"/>
+          <circle cx="44" cy="0" r="7" fill="#00d4ff" style="filter:drop-shadow(0 0 6px #00d4ff)"/>
+          <rect x="10" y="18" width="68" height="52" rx="10" fill="#1e3066"/>
+          <rect x="12" y="20" width="64" height="48" rx="8" fill="#152050"/>
+          <rect x="16" y="24" width="56" height="38" rx="5" fill="#0a1830"/>
+          <circle cx="32" cy="39" r="9" fill="#00d4ff" style="filter:drop-shadow(0 0 8px #00d4ff)"/>
+          <circle cx="32" cy="39" r="6" fill="#003355"/>
+          <circle cx="32" cy="39" r="3.5" fill="#00ffff" style="animation:eyeGlow 1.5s ease-in-out infinite"/>
+          <circle cx="56" cy="39" r="9" fill="#00d4ff" style="filter:drop-shadow(0 0 8px #00d4ff)"/>
+          <circle cx="56" cy="39" r="6" fill="#003355"/>
+          <circle cx="56" cy="39" r="3.5" fill="#00ffff" style="animation:eyeGlow 1.5s ease-in-out infinite .3s"/>
+          <rect x="24" y="52" width="5" height="5" rx="1" fill="#00ff88"/>
+          <rect x="33" y="54" width="5" height="5" rx="1" fill="#00ff88"/>
+          <rect x="42" y="52" width="5" height="5" rx="1" fill="#00ff88"/>
+          <rect x="51" y="54" width="5" height="5" rx="1" fill="#00ff88"/>
+          <rect x="34" y="70" width="20" height="10" rx="3" fill="#1e3066"/>
+          <rect x="10" y="80" width="68" height="56" rx="10" fill="#1e3066"/>
+          <rect x="12" y="82" width="64" height="52" rx="8" fill="#152050"/>
+          <rect x="20" y="88" width="48" height="34" rx="5" fill="#0a1830"/>
+          <circle cx="36" cy="100" r="5" fill="#ff6b6b"/>
+          <circle cx="52" cy="100" r="5" fill="#ffd93d"/>
+          <circle cx="36" cy="114" r="5" fill="#6bcb77"/>
+          <circle cx="52" cy="114" r="5" fill="#4d96ff"/>
+          <circle cx="70" cy="92" r="9" fill="none" stroke="#4a9eff" stroke-width="2.5"/>
+          <circle cx="70" cy="92" r="4.5" fill="#4a9eff"/>
+          <g class="al" style="transform-origin:4px 82px"><rect x="-4" y="82" width="18" height="40" rx="9" fill="#1e3066"/><rect x="-6" y="120" width="20" height="12" rx="4" fill="#152050"/></g>
+          <g class="ar" style="transform-origin:84px 82px"><rect x="74" y="82" width="18" height="40" rx="9" fill="#1e3066"/><rect x="72" y="120" width="20" height="12" rx="4" fill="#152050"/></g>
+          <rect x="22" y="136" width="20" height="16" rx="5" fill="#152050"/>
+          <rect x="46" y="136" width="20" height="16" rx="5" fill="#152050"/>
+        </svg>
+      </div>
+
+      <!-- Holographic menu -->
+      <div class="holo-menu" id="holoMenu">
+        <div class="hm-head">CT Automation</div>
+        <div class="hm-item"><span>📊</span> Dashboard</div>
+        <div class="hm-item"><span>📋</span> All Jobs</div>
+        <div class="hm-item hi" id="hiUpload"><span>📤</span> Upload Spreadsheet</div>
+        <div class="hm-item"><span>⚙️</span> Blog Settings</div>
+        <div class="hm-item"><span>🤖</span> Claude Setup</div>
+      </div>
+
+      <div class="cursor-hand" id="cursor2">👆</div>
+      <div class="caption-bar" id="cap2">🤖 The AI machine arrives — tap Upload Spreadsheet</div>
+    </div>
+
+    <!-- ════════════════════════════
+         SCENE 3 — Upload Flow
+    ════════════════════════════ -->
+    <div class="scene" id="s3">
+      <div class="screen-frame" id="sf3">
+        <div class="sf-bar">
+          <div class="sf-dot" style="background:#ff5f57"></div>
+          <div class="sf-dot" style="background:#febc2e"></div>
+          <div class="sf-dot" style="background:#28c840"></div>
+          <div class="sf-title">localhost:4000/upload — CT Automation</div>
+        </div>
+        <div class="sf-body">
+          <div class="steps" id="stepInd">
+            <div class="sn act" id="sn1">1</div>
+            <div class="step-line" id="sl12"></div>
+            <div class="sn off" id="sn2">2</div>
+            <div class="step-line" id="sl23"></div>
+            <div class="sn off" id="sn3">3</div>
+            <div class="step-line" id="sl34"></div>
+            <div class="sn off" id="sn4">4</div>
+          </div>
+
+          <!-- Step 1 -->
+          <div id="s3p1">
+            <div style="font-size:13px;font-weight:600;margin-bottom:4px">Which blog is this sheet for?</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:14px">Select your blog configuration to continue</div>
+            <div class="bcards">
+              <div class="bcard" id="bc1"><div class="bcard-icon">🏛️</div><div class="bcard-name">EveryCRED</div><div class="bcard-domain">everycred.com</div></div>
+              <div class="bcard" id="bc2"><div class="bcard-icon">💻</div><div class="bcard-name">ViitorCloud</div><div class="bcard-domain">viitorcloud.com</div></div>
+              <div class="bcard" id="bc3"><div class="bcard-icon">🎟️</div><div class="bcard-name">EveryTicket</div><div class="bcard-domain">everyticket.com</div></div>
+            </div>
+          </div>
+
+          <!-- Step 2 (hidden initially) -->
+          <div id="s3p2" style="display:none">
+            <div style="font-size:13px;font-weight:600;margin-bottom:2px">Review & Queue — <span style="color:var(--pri)">EveryCRED</span></div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:12px">5 posts found · 1 duplicate detected</div>
+            <table class="jtbl">
+              <thead><tr><th>#</th><th>Title</th><th>Keyword</th><th>Date</th><th>Action</th></tr></thead>
+              <tbody>
+                <tr><td>1</td><td>Digital Credentials for Gov…</td><td>identity</td><td>Jan 15</td><td><span class="bg">✓ New</span></td></tr>
+                <tr class="dup" id="duprow"><td>2</td><td>AI in Manufacturing 2025</td><td>automation</td><td>Jan 16</td><td id="dupcell"><span class="bw">⚠ Duplicate</span></td></tr>
+                <tr><td>3</td><td>Blockchain Supply Chain</td><td>blockchain</td><td>Jan 17</td><td><span class="bg">✓ New</span></td></tr>
+                <tr><td>4</td><td>Zero Trust Security</td><td>zero trust</td><td>Jan 18</td><td><span class="bg">✓ New</span></td></tr>
+                <tr><td>5</td><td>NFT Ticketing Future</td><td>nft tickets</td><td>Jan 19</td><td><span class="bg">✓ New</span></td></tr>
+              </tbody>
+            </table>
+            <button class="qbtn" id="qbtn3" onclick="triggerQueue()">🚀 Queue 5 Jobs — Auto Start</button>
+          </div>
+        </div>
+      </div>
+      <div class="cursor-hand" id="cursor3" style="position:absolute;opacity:0;z-index:30;font-size:24px;pointer-events:none">👆</div>
+      <div class="caption-bar" id="cap3">📤 Select blog → upload → review → queue — 4 easy steps</div>
+    </div>
+    <div class="toast" id="toast">✅ 5 jobs queued! Generation starting…</div>
+
+    <!-- ════════════════════════════
+         SCENE 4b — Generation Pipeline
+    ════════════════════════════ -->
+    <div class="scene" id="s4b">
+      <div class="pipe-wrap">
+
+        <!-- Left: vertical stage list -->
+        <div class="pipe-stages" id="pipeStages">
+          <div class="ps" id="ps1"><div class="ps-icon">📥</div><div><div class="ps-name">Job Received</div><div class="ps-sub">From queue</div></div></div>
+          <div class="ps-conn" id="pc1"></div>
+          <div class="ps" id="ps2"><div class="ps-icon">📂</div><div><div class="ps-name">Context Load</div><div class="ps-sub">Brand files</div></div></div>
+          <div class="ps-conn" id="pc2"></div>
+          <div class="ps" id="ps3"><div class="ps-icon">🔧</div><div><div class="ps-name">Prompt Build</div><div class="ps-sub">6,307 tokens</div></div></div>
+          <div class="ps-conn" id="pc3"></div>
+          <div class="ps" id="ps4"><div class="ps-icon">🧠</div><div><div class="ps-name">Call 1: Outline</div><div class="ps-sub">Sections + links</div></div></div>
+          <div class="ps-conn" id="pc4"></div>
+          <div class="ps" id="ps5"><div class="ps-icon">✍️</div><div><div class="ps-name">Call 2: Article</div><div class="ps-sub">Full draft</div></div></div>
+          <div class="ps-conn" id="pc5"></div>
+          <div class="ps" id="ps6"><div class="ps-icon">🔨</div><div><div class="ps-name">Gutenberg Format</div><div class="ps-sub">14 blocks</div></div></div>
+          <div class="ps-conn" id="pc6"></div>
+          <div class="ps" id="ps7"><div class="ps-icon">📸</div><div><div class="ps-name">Featured Image</div><div class="ps-sub">Pexels API</div></div></div>
+          <div class="ps-conn" id="pc7"></div>
+          <div class="ps" id="ps8"><div class="ps-icon">📤</div><div><div class="ps-name">WordPress POST</div><div class="ps-sub">Draft #4721</div></div></div>
+        </div>
+
+        <!-- Right: detail panel -->
+        <div class="pipe-detail">
+          <div class="pd-screen">
+            <div class="pd-bar">
+              <span style="font-size:14px">⚡</span>
+              <span class="pd-bar-title" id="pdBarTitle">Initialising…</span>
+            </div>
+            <div class="pd-body">
+
+              <!-- Panel 1: Job received -->
+              <div class="pd-panel" id="pd1">
+                <div style="font-size:12px;font-weight:600;margin-bottom:10px;color:var(--txt)">Processing job from queue:</div>
+                <div style="background:var(--s1);border:1px solid var(--bord);border-radius:8px;padding:12px">
+                  <div style="font-size:13px;font-weight:700;color:var(--pri);margin-bottom:8px">Digital Credentials for Government</div>
+                  <div style="display:flex;gap:16px;font-size:11px;color:var(--muted)">
+                    <span>🔑 <b style="color:var(--acc)">identity</b></span>
+                    <span>📅 Jan 15, 2025</span>
+                    <span>🏛️ EveryCRED</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Panel 2: Context load -->
+              <div class="pd-panel" id="pd2">
+                <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px">Reading context from blogs/everycred/context/</div>
+                <div class="ctx-file" id="cf1">📄 seo-guidelines.md<span class="ctx-ok">✓ 4.2KB</span></div>
+                <div class="ctx-file" id="cf2">📄 style-guide.md<span class="ctx-ok">✓ 2.8KB</span></div>
+                <div class="ctx-file" id="cf3">📄 everycred_blog_generation.md<span class="ctx-ok">✓ 5.1KB</span></div>
+                <div class="ctx-file" id="cf4">💬 Feedback history (3 entries)<span class="ctx-ok">✓ loaded</span></div>
+              </div>
+
+              <!-- Panel 3: Prompt build -->
+              <div class="pd-panel" id="pd3">
+                <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Assembling system + user prompt</div>
+                <div class="tok-row"><span>System identity + rules</span><span class="tk">3,218</span></div>
+                <div class="tok-row"><span>Brand context files</span><span class="tk">1,840</span></div>
+                <div class="tok-row"><span>Writing + SEO rules</span><span class="tk">962</span></div>
+                <div class="tok-row"><span>User content + topic</span><span class="tk">287</span></div>
+                <div class="tok-total"><span>Total prompt</span><span style="color:var(--pri)">6,307 tokens</span></div>
+              </div>
+
+              <!-- Panel 4: Outline JSON -->
+              <div class="pd-panel" id="pd4">
+                <div class="json-pre" id="jsonPre"></div>
+              </div>
+
+              <!-- Panel 5: Article writing -->
+              <div class="pd-panel" id="pd5">
+                <div class="wc-big" id="wcCount">0</div>
+                <div class="wc-label">words written</div>
+                <div class="article-preview" id="articlePreview">Generating article content…</div>
+              </div>
+
+              <!-- Panel 6: Gutenberg blocks -->
+              <div class="pd-panel" id="pd6">
+                <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Converting HTML → native Gutenberg blocks</div>
+                <div class="block-row" id="bl1"><span class="block-tag">wp:heading</span><span>Introduction</span><span class="block-cnt">×1</span></div>
+                <div class="block-row" id="bl2"><span class="block-tag">wp:paragraph</span><span>Body paragraphs</span><span class="block-cnt">×8</span></div>
+                <div class="block-row" id="bl3"><span class="block-tag">wp:heading</span><span>H2 sections</span><span class="block-cnt">×6</span></div>
+                <div class="block-row" id="bl4"><span class="block-tag">wp:list</span><span>Bullet lists</span><span class="block-cnt">×3</span></div>
+                <div class="block-row" id="bl5"><span class="block-tag">cta-section-modern</span><span>CTA banner</span><span class="block-cnt">×1</span></div>
+                <div style="margin-top:8px;font-size:10px;color:var(--ok)">✓ 14 blocks · wp.blocks.parse() ready</div>
+              </div>
+
+              <!-- Panel 7: Image fetch -->
+              <div class="pd-panel" id="pd7">
+                <div class="img-step" id="is1"><span class="img-step-icon">🔍</span><span>Searching Pexels: "digital identity credentials"</span></div>
+                <div class="img-step" id="is2"><span class="img-step-icon">🖼️</span><span>Photo #3861969 found · 4K resolution</span><div class="img-placeholder" id="imgPrev">🏛️</div></div>
+                <div class="img-step" id="is3"><span class="img-step-icon">⚙️</span><span>Converting → 28KB WebP thumbnail</span></div>
+                <div class="img-step" id="is4"><span class="img-step-icon">📤</span><span>Uploading to WP Media Library</span></div>
+                <div class="img-step" id="is5" style="color:var(--ok)"><span class="img-step-icon">✅</span><span style="color:var(--ok);font-weight:600">Media #8821 ready · attached to post</span></div>
+              </div>
+
+              <!-- Panel 8: WP POST -->
+              <div class="pd-panel" id="pd8">
+                <div class="api-block" id="apiBlock">
+<span class="api-method">POST</span> <span class="api-url">/wp-json/wp/v2/posts</span>
+<span class="api-key">title:</span>  <span class="api-val">"Digital Credentials for Gov…"</span>
+<span class="api-key">status:</span> <span class="api-val">draft</span>
+<span class="api-key">blocks:</span> <span class="api-val">14 Gutenberg blocks</span>
+<span class="api-key">media:</span>  <span class="api-val">#8821 (Pexels)</span>
+<span class="api-key">tags:</span>   <span class="api-val">["identity", "credentials", …]</span>
+
+<span class="api-resp">← 201 Created</span>
+<span class="api-key">  post_id:</span> <span class="api-val">4721</span>
+<span class="api-key">  url:</span>     <span class="api-url">everycred.com/?p=4721</span>
+                </div>
+                <div class="draft-badge" id="draftBadge">✅ Draft #4721 live on everycred.com</div>
+              </div>
+
+            </div><!-- /pd-body -->
+          </div><!-- /pd-screen -->
+          <div class="pipe-log"><span class="log-tick" id="pipeLogTxt">Waiting for job…</span></div>
+        </div><!-- /pipe-detail -->
+
+      </div><!-- /pipe-wrap -->
+      <div class="caption-bar" id="cap4b">⚙️ Every article: context → AI outline → AI article → Gutenberg → WP draft</div>
+    </div>
+
+    <!-- ════════════════════════════
+         SCENE 4 — AI Generation
+    ════════════════════════════ -->
+    <div class="scene" id="s4">
+      <div class="gen-layout">
+        <div class="jcards" id="jcards4">
+          <div class="jcard" id="jc1"><span class="jtitle">Digital Credentials for Gov…</span><span class="jst st-p" id="js1">🕐 Pending</span></div>
+          <div class="jcard" id="jc2"><span class="jtitle">AI in Manufacturing 2025</span><span class="jst st-p" id="js2">🕐 Pending</span></div>
+          <div class="jcard" id="jc3"><span class="jtitle">Blockchain Supply Chain</span><span class="jst st-p" id="js3">🕐 Pending</span></div>
+          <div class="jcard" id="jc4"><span class="jtitle">Zero Trust Security Model</span><span class="jst st-p" id="js4">🕐 Pending</span></div>
+          <div class="jcard" id="jc5"><span class="jtitle">NFT Ticketing Future</span><span class="jst st-p" id="js5">🕐 Pending</span></div>
+        </div>
+        <div class="ai-box">
+          <div class="ai-ring" id="aiRing"><div class="ai-inner">🧠</div></div>
+          <div class="ai-lbl">Claude AI Engine</div>
+          <div class="log-box" id="logBox">
+            <div class="logln info" id="ll1">▶ Outline call (1/2)…</div>
+            <div class="logln ok"   id="ll2">✓ 6 sections mapped</div>
+            <div class="logln info" id="ll3">▶ Article call (2/2)…</div>
+            <div class="logln ok"   id="ll4">✓ 1,892 words written</div>
+            <div class="logln info" id="ll5">▶ Uploading to WP…</div>
+            <div class="logln ok"   id="ll6">✓ Draft #4721 saved!</div>
+            <div class="logln info" id="ll7">▶ Featured image…</div>
+            <div class="logln ok"   id="ll8">✓ Pexels photo found</div>
+          </div>
+          <div class="cost-pill" id="costPill">💰 <span id="costVal">$0.00</span></div>
+        </div>
+      </div>
+      <div class="caption-bar" id="cap4">🧠 Claude: research → outline → full article → WordPress draft</div>
+    </div>
+
+    <!-- ════════════════════════════
+         SCENE 5 — Celebration
+    ════════════════════════════ -->
+    <div class="scene" id="s5">
+      <div class="done-box" id="doneBox">
+        <div class="done-h">🎉 All Blogs Delivered!</div>
+        <div class="done-sub">5 WordPress drafts — ready to publish</div>
+        <div class="wp-row">
+          <div class="wpc" id="wp1"><div class="wpc-icon">📝</div><div class="wpc-lbl">✅ Draft</div><div class="wpc-id">#4721</div></div>
+          <div class="wpc" id="wp2"><div class="wpc-icon">📝</div><div class="wpc-lbl">✅ Draft</div><div class="wpc-id">#4722</div></div>
+          <div class="wpc" id="wp3"><div class="wpc-icon">📝</div><div class="wpc-lbl">✅ Draft</div><div class="wpc-id">#4723</div></div>
+          <div class="wpc" id="wp4"><div class="wpc-icon">📝</div><div class="wpc-lbl">✅ Draft</div><div class="wpc-id">#4724</div></div>
+          <div class="wpc" id="wp5"><div class="wpc-icon">📝</div><div class="wpc-lbl">✅ Draft</div><div class="wpc-id">#4725</div></div>
+        </div>
+        <div class="stats-row">
+          <div class="sbox"><div class="sval g" id="sv1">0</div><div class="slbl">Drafts</div></div>
+          <div class="sbox"><div class="sval" id="sv2">0s</div><div class="slbl">Time Saved</div></div>
+          <div class="sbox"><div class="sval" id="sv3">$0.00</div><div class="slbl">Total Cost</div></div>
+          <div class="sbox"><div class="sval g" id="sv4">0%</div><div class="slbl">Avg SEO</div></div>
+        </div>
+        <div class="done-footer">✨ 5 fully-optimised, SEO-ready blog drafts — delivered in minutes, not days</div>
+      </div>
+    </div>
+
+  </div><!-- /theater -->
+
+  <!-- Controls -->
+  <div class="ctrl-bar">
+    <div class="cb-left">
+      <button class="cbtn" id="btnP" onclick="prev()" disabled>← Prev</button>
+      <button class="cbtn pri" id="btnPP" onclick="togglePlay()">⏸ Pause</button>
+      <button class="cbtn" id="btnN" onclick="next()">Next →</button>
+    </div>
+    <div class="sname" id="sname">The Brief</div>
+    <div class="prog-wrap"><div class="prog-fill" id="pbar"></div></div>
+    <div class="dots" id="dotsCont">
+      <div class="dot active" onclick="go(0)" title="The Brief"></div>
+      <div class="dot" onclick="go(1)" title="The Machine"></div>
+      <div class="dot" onclick="go(2)" title="Upload Flow"></div>
+      <div class="dot" onclick="go(3)" title="Behind The Scenes"></div>
+      <div class="dot" onclick="go(4)" title="Live Dashboard"></div>
+      <div class="dot" onclick="go(5)" title="Celebration"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ════════════════════════════════════════════
+   CANVAS SYSTEMS
+════════════════════════════════════════════ */
+const bgC = document.getElementById('bgCanvas');
+const fxC = document.getElementById('fxCanvas');
+const bgX = bgC.getContext('2d');
+const fxX = fxC.getContext('2d');
+let W, H;
+
+function resize() {
+  const t = document.getElementById('theater');
+  W = bgC.width = fxC.width = t.offsetWidth;
+  H = bgC.height = fxC.height = t.offsetHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+/* ── Background stars ── */
+const stars = Array.from({length:80}, () => ({
+  x: Math.random(), y: Math.random(),
+  r: .5 + Math.random() * 1.2,
+  speed: .0002 + Math.random() * .0004,
+  phase: Math.random() * Math.PI * 2,
+}));
+
+function drawBg(t) {
+  bgX.clearRect(0, 0, W, H);
+  stars.forEach(s => {
+    const a = .3 + .4 * Math.sin(t * s.speed * 1000 + s.phase);
+    bgX.beginPath();
+    bgX.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+    bgX.fillStyle = `rgba(99,102,241,${a})`;
+    bgX.fill();
+  });
+}
+
+/* ── Particle / Data packet system ── */
+class Particle {
+  constructor(sx, sy, ex, ey, color) {
+    this.sx = sx; this.sy = sy; this.ex = ex; this.ey = ey;
+    this.x = sx; this.y = sy;
+    this.color = color || '#6366f1';
+    this.life = 0; this.maxLife = .8 + Math.random() * .4;
+    this.size = 3 + Math.random() * 3;
+    this.trail = [];
+    // arc control point
+    this.cy = Math.min(sy, ey) - 40 - Math.random() * 60;
+    this.cx = (sx + ex) / 2;
+    this.speed = .008 + Math.random() * .006;
+    this.dead = false;
+  }
+  update() {
+    this.life += this.speed;
+    if (this.life >= 1) { this.dead = true; return; }
+    const t = this.life;
+    // Quadratic bezier
+    this.x = (1-t)*(1-t)*this.sx + 2*(1-t)*t*this.cx + t*t*this.ex;
+    this.y = (1-t)*(1-t)*this.sy + 2*(1-t)*t*this.cy + t*t*this.ey;
+    this.trail.push({x:this.x, y:this.y});
+    if (this.trail.length > 8) this.trail.shift();
+  }
+  draw(ctx) {
+    if (this.dead) return;
+    const a = this.life < .1 ? this.life/.1 : this.life > .85 ? (1-this.life)/.15 : 1;
+    for (let i=0; i<this.trail.length; i++) {
+      const ta = (i/this.trail.length) * a * .5;
+      ctx.beginPath();
+      ctx.arc(this.trail[i].x, this.trail[i].y, this.size * .6, 0, Math.PI*2);
+      ctx.fillStyle = this.color.replace('1)', `${ta})`).replace('rgb','rgba');
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI*2);
+    ctx.fillStyle = this.color;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = this.color;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+/* ── Confetti ── */
+class Confetto {
+  constructor() {
+    const colors = ['#6366f1','#22c55e','#f59e0b','#38bdf8','#ef4444','#a78bfa','#34d399','#fbbf24'];
+    this.x = Math.random() * W;
+    this.y = -20;
+    this.w = 6 + Math.random() * 8;
+    this.h = 5 + Math.random() * 6;
+    this.color = colors[Math.floor(Math.random() * colors.length)];
+    this.rot = Math.random() * Math.PI * 2;
+    this.drot = (Math.random() - .5) * .2;
+    this.vx = (Math.random() - .5) * 2;
+    this.vy = 2 + Math.random() * 3;
+    this.dead = false;
+  }
+  update() {
+    this.x += this.vx; this.y += this.vy; this.rot += this.drot;
+    this.vy += .04;
+    if (this.y > H + 20) this.dead = true;
+  }
+  draw(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+    ctx.fillStyle = this.color;
+    ctx.fillRect(-this.w/2, -this.h/2, this.w, this.h);
+    ctx.restore();
+  }
+}
+
+let particles = [];
+let confetti = [];
+let particleActive = false;
+let confettiActive = false;
+let packetInterval = null;
+
+function startPackets(sx, sy, ex, ey) {
+  particleActive = true;
+  packetInterval = setInterval(() => {
+    if (!particleActive) return;
+    const colors = ['rgba(99,102,241,1)','rgba(56,189,248,1)','rgba(34,197,94,1)'];
+    for (let i=0; i<2; i++) {
+      particles.push(new Particle(sx, sy, ex + (Math.random()-0.5)*30, ey + (Math.random()-0.5)*20, colors[Math.floor(Math.random()*colors.length)]));
+    }
+  }, 180);
+}
+
+function stopPackets() {
+  particleActive = false;
+  clearInterval(packetInterval);
+}
+
+function startConfetti() {
+  confettiActive = true;
+  const burst = () => {
+    if (!confettiActive) return;
+    for (let i=0; i<6; i++) confetti.push(new Confetto());
+    setTimeout(burst, 60);
+  };
+  burst();
+}
+
+function stopConfetti() { confettiActive = false; }
+
+/* ── FX loop ── */
+let lastT = 0;
+function fxLoop(t) {
+  requestAnimationFrame(fxLoop);
+  drawBg(t);
+  fxX.clearRect(0, 0, W, H);
+  particles = particles.filter(p => { p.update(); if (!p.dead) p.draw(fxX); return !p.dead; });
+  confetti = confetti.filter(c => { c.update(); if (!c.dead) c.draw(fxX); return !c.dead; });
+}
+requestAnimationFrame(fxLoop);
+
+/* ════════════════════════════════════════════
+   SCENE CONTROLLER
+════════════════════════════════════════════ */
+const SCENES = [
+  { id:'s1',  title:'Scene 1 — The Brief',              name:'The Brief',          dur:8000  },
+  { id:'s2',  title:'Scene 2 — The Machine',            name:'The Machine',        dur:7000  },
+  { id:'s3',  title:'Scene 3 — Upload Flow',            name:'Upload Flow',        dur:10000 },
+  { id:'s4b', title:'Scene 4 — Generation Pipeline',    name:'Behind The Scenes',  dur:17500 },
+  { id:'s4',  title:'Scene 5 — All Jobs Processing',    name:'Live Dashboard',     dur:12000 },
+  { id:'s5',  title:'Scene 6 — Celebration',            name:'Celebration',        dur:9000  },
+];
+
+let cur = 0, playing = true, mainTimer = null, stTimers = [];
+
+function st(fn, d) { stTimers.push(setTimeout(fn, d)); }
+
+function clearAll() {
+  clearTimeout(mainTimer);
+  stTimers.forEach(t => clearTimeout(t));
+  stTimers = [];
+  stopPackets();
+  stopConfetti();
+  particles = [];
+  confetti = [];
+  document.getElementById('pbar').style.transition = 'none';
+  document.getElementById('pbar').style.width = '0%';
+}
+
+function go(idx) {
+  clearAll();
+  document.querySelectorAll('.scene').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.caption-bar').forEach(c => c.classList.remove('show'));
+  cur = idx;
+  document.getElementById(SCENES[cur].id).classList.add('active');
+  updateUI();
+  runAnim(cur);
+  if (playing) kick();
+}
+
+function kick() {
+  const dur = SCENES[cur].dur;
+  const bar = document.getElementById('pbar');
+  bar.style.transition = 'none'; bar.style.width = '0%';
+  requestAnimationFrame(() => {
+    bar.style.transition = `width ${dur}ms linear`;
+    bar.style.width = '100%';
+  });
+  mainTimer = setTimeout(() => { if (cur < SCENES.length-1) go(cur+1); else { playing=false; updateBtn(); }}, dur);
+}
+
+function prev() { if (cur > 0) go(cur-1); }
+function next() { if (cur < SCENES.length-1) go(cur+1); }
+function togglePlay() { playing=!playing; updateBtn(); if (playing) kick(); else clearAll(); }
+
+function updateBtn() { document.getElementById('btnPP').textContent = playing ? '⏸ Pause' : '▶ Play'; }
+
+function updateUI() {
+  const s = SCENES[cur];
+  document.getElementById('hdrTitle').textContent = s.title;
+  document.getElementById('hdrCount').textContent = `${cur+1} / ${SCENES.length}`;
+  document.getElementById('sname').textContent = s.name;
+  document.getElementById('btnP').disabled = cur === 0;
+  document.getElementById('btnN').disabled = cur === SCENES.length-1;
+  document.querySelectorAll('.dot').forEach((d,i) => {
+    d.classList.toggle('active', i===cur);
+    d.classList.toggle('done', i<cur);
+  });
+}
+
+/* ════════════════════════════════════════════
+   SCENE ANIMATIONS
+════════════════════════════════════════════ */
+
+function runAnim(i) { [aS1,aS2,aS3,aPipe,aS4,aS5][i](); }
+
+/* ── Scene 1 ── */
+function aS1() {
+  const man  = document.getElementById('man1');
+  const card = document.getElementById('docCard1');
+
+  // Reset state
+  man.style.left = '-120px';
+  man.style.transition = 'none';
+  man.classList.remove('walking','breathing');
+  card.classList.remove('show');
+  document.querySelectorAll('#s1 .sheet-row').forEach(r => r.classList.remove('show'));
+  document.getElementById('cap1').classList.remove('show');
+
+  // t=0.3s — caption slides in
+  st(() => document.getElementById('cap1').classList.add('show'), 300);
+
+  // t=0.4s — man starts walking in from off-screen left
+  st(() => {
+    man.classList.add('walking');
+    man.style.transition = 'left 1.5s cubic-bezier(.2,.8,.4,1)';
+    man.style.left = '100px';
+  }, 400);
+
+  // t=1.9s — man stops, switches to idle breathing
+  st(() => {
+    man.classList.remove('walking');
+    man.classList.add('breathing');
+  }, 1900);
+
+  // t=2.0s — doc card pops in from center (scale + fade)
+  st(() => card.classList.add('show'), 2000);
+
+  // t=2.6s onwards — each row slides in left→right with stagger
+  [1,2,3,4,5].forEach((n, i) => {
+    st(() => {
+      const row = document.getElementById('sr'+n);
+      row.classList.add('show');
+      // Add typing cursor to last visible row, remove from previous
+      document.querySelectorAll('#s1 .td-title').forEach(td => td.classList.remove('typing'));
+      row.querySelector('.td-title').classList.add('typing');
+    }, 2600 + i * 420);
+  });
+
+  // t=4.7s — remove typing cursor once all rows shown
+  st(() => document.querySelectorAll('#s1 .td-title').forEach(td => td.classList.remove('typing')), 4700);
+}
+
+/* ── Scene 2 ── */
+function aS2() {
+  const bot = document.getElementById('bot2');
+  const menu = document.getElementById('holoMenu');
+  const cur3 = document.getElementById('cursor2');
+
+  bot.style.right = '-140px'; bot.style.transition = 'none'; bot.classList.remove('hovering');
+  menu.classList.remove('show');
+  cur3.style.opacity = '0';
+  document.getElementById('cap2').classList.remove('show');
+
+  // Man stays static
+  st(() => document.getElementById('cap2').classList.add('show'), 300);
+
+  // Robot glides in
+  st(() => {
+    bot.classList.add('hovering');
+    bot.style.transition = 'right 1.2s cubic-bezier(.2,.8,.4,1)';
+    bot.style.right = '70px';
+  }, 500);
+
+  // Menu expands
+  st(() => menu.classList.add('show'), 1900);
+
+  // Cursor points
+  st(() => {
+    const rect = document.getElementById('hiUpload').getBoundingClientRect();
+    const theater = document.getElementById('theater').getBoundingClientRect();
+    cur3.style.opacity = '1';
+    cur3.style.left = (rect.left - theater.left - 10) + 'px';
+    cur3.style.top = (rect.top - theater.top - 10) + 'px';
+    cur3.style.transition = 'none';
+  }, 3200);
+
+  // Cursor animates to option
+  st(() => {
+    const rect = document.getElementById('hiUpload').getBoundingClientRect();
+    const theater = document.getElementById('theater').getBoundingClientRect();
+    cur3.style.transition = 'left .8s cubic-bezier(.22,.68,0,1.1), top .8s cubic-bezier(.22,.68,0,1.1), opacity .3s';
+    cur3.style.left = (rect.left - theater.left + 8) + 'px';
+    cur3.style.top = (rect.top - theater.top + 4) + 'px';
+  }, 3600);
+
+  // Click flash
+  st(() => {
+    document.getElementById('hiUpload').style.background = 'rgba(99,102,241,.5)';
+    setTimeout(() => document.getElementById('hiUpload').style.background = '', 200);
+    cur3.style.transform = 'scale(.85)';
+    setTimeout(() => cur3.style.transform = '', 150);
+  }, 4600);
+}
+
+/* ── Scene 3 ── */
+function aS3() {
+  const sf = document.getElementById('sf3');
+  const p1 = document.getElementById('s3p1');
+  const p2 = document.getElementById('s3p2');
+  const cur = document.getElementById('cursor3');
+
+  // Reset
+  sf.classList.remove('show');
+  p1.style.display='block'; p1.style.opacity='1';
+  p2.style.display='none';
+  ['bc1','bc2','bc3'].forEach(id => { const c=document.getElementById(id); c.classList.remove('show','sel'); c.style.transition=''; });
+  const snEl1=document.getElementById('sn1'), snEl2=document.getElementById('sn2'),
+        snEl3=document.getElementById('sn3'), snEl4=document.getElementById('sn4');
+  snEl1.className='sn act'; snEl1.textContent='1';
+  snEl2.className='sn off'; snEl2.textContent='2';
+  snEl3.className='sn off'; snEl3.textContent='3';
+  snEl4.className='sn off'; snEl4.textContent='4';
+  document.getElementById('sl12').classList.remove('done');
+  document.getElementById('sl23').classList.remove('done');
+  document.getElementById('sl34').classList.remove('done');
+  document.getElementById('dupcell').innerHTML='<span class="bw">⚠ Duplicate</span>';
+  document.getElementById('duprow').classList.remove('dup-anim');
+  document.getElementById('qbtn3').classList.remove('pulse-btn');
+  cur.style.opacity='0'; cur.style.transition='none';
+  document.getElementById('cap3').classList.remove('show');
+  document.getElementById('toast').classList.remove('show');
+
+  st(() => document.getElementById('cap3').classList.add('show'), 200);
+
+  // Frame zooms in
+  st(() => sf.classList.add('show'), 300);
+
+  // Blog cards bounce in
+  [1,2,3].forEach((n,i) => {
+    st(() => {
+      const c = document.getElementById('bc'+n);
+      c.style.transition = `transform .45s ${i*.1}s cubic-bezier(.22,.68,0,1.3), opacity .3s ${i*.1}s`;
+      c.classList.add('show');
+    }, 900 + i*200);
+  });
+
+  // Cursor appears near EveryCRED
+  st(() => {
+    const r = document.getElementById('bc1').getBoundingClientRect();
+    const th = document.getElementById('theater').getBoundingClientRect();
+    cur.style.opacity='1'; cur.style.left=(r.right-th.left-20)+'px'; cur.style.top=(r.bottom-th.top-20)+'px';
+  }, 1900);
+
+  // Cursor clicks EveryCRED
+  st(() => {
+    const r = document.getElementById('bc1').getBoundingClientRect();
+    const th = document.getElementById('theater').getBoundingClientRect();
+    cur.style.transition='left .6s cubic-bezier(.22,.68,0,1.1),top .6s cubic-bezier(.22,.68,0,1.1),opacity .3s';
+    cur.style.left=(r.left-th.left+r.width/2-10)+'px'; cur.style.top=(r.top-th.top+r.height/2-10)+'px';
+  }, 2200);
+
+  // Select card
+  st(() => {
+    document.getElementById('bc1').classList.add('sel');
+    cur.style.transform='scale(.85)'; setTimeout(()=>cur.style.transform='',150);
+  }, 3000);
+
+  // Step indicator updates
+  st(() => {
+    document.getElementById('sn1').className='sn done'; document.getElementById('sn1').textContent='✓';
+    document.getElementById('sl12').classList.add('done');
+    document.getElementById('sn2').className='sn act';
+  }, 3400);
+
+  // Transition to step 2
+  st(() => {
+    p1.style.transition='opacity .3s'; p1.style.opacity='0';
+    cur.style.opacity='0';
+    st(() => { p1.style.display='none'; p2.style.display='block'; p2.style.opacity='0'; p2.style.transition='opacity .4s'; requestAnimationFrame(()=>p2.style.opacity='1'); }, 350);
+  }, 3700);
+
+  // Duplicate row animation
+  st(() => {
+    document.getElementById('duprow').classList.add('dup-anim');
+    document.getElementById('dupcell').innerHTML='<span class="bw">⚠ Dup → Replace</span>';
+  }, 4800);
+
+  // Queue button pulses
+  st(() => {
+    document.getElementById('qbtn3').classList.add('pulse-btn');
+  }, 6000);
+
+  // Auto-click queue
+  st(() => triggerQueue(true), 7200);
+
+  // Step 3 Review → active after upload
+  st(() => {
+    document.getElementById('sn2').className='sn done'; document.getElementById('sn2').textContent='✓';
+    document.getElementById('sl23').classList.add('done');
+    document.getElementById('sn3').className='sn act';
+  }, 7900);
+
+  // Step 4 Queued → active after review
+  st(() => {
+    document.getElementById('sn3').className='sn done'; document.getElementById('sn3').textContent='✓';
+    document.getElementById('sl34').classList.add('done');
+    document.getElementById('sn4').className='sn act';
+  }, 8900);
+
+  // All steps complete
+  st(() => {
+    document.getElementById('sn4').className='sn done'; document.getElementById('sn4').textContent='✓';
+  }, 9600);
+}
+
+function triggerQueue(auto) {
+  const btn = document.getElementById('qbtn3');
+  const ripple = document.createElement('span');
+  ripple.className='ripple';
+  ripple.style.cssText='width:200px;height:200px;left:50%;top:50%;margin-left:-100px;margin-top:-100px';
+  btn.appendChild(ripple);
+  setTimeout(()=>ripple.remove(),700);
+  st(() => document.getElementById('toast').classList.add('show'), 400);
+  st(() => document.getElementById('toast').classList.remove('show'), 2600);
+}
+
+/* ── Scene 4b — Generation Pipeline ── */
+function aPipe() {
+  // Reset all stages and sub-elements
+  for (let i=1; i<=8; i++) {
+    const ps = document.getElementById('ps'+i);
+    if (ps) ps.classList.remove('lit','done');
+    const pd = document.getElementById('pd'+i);
+    if (pd) pd.classList.remove('show');
+  }
+  for (let i=1; i<=7; i++) {
+    const pc = document.getElementById('pc'+i);
+    if (pc) pc.classList.remove('flow');
+  }
+  ['cf1','cf2','cf3','cf4'].forEach(id => document.getElementById(id).classList.remove('show'));
+  ['bl1','bl2','bl3','bl4','bl5'].forEach(id => document.getElementById(id).classList.remove('show'));
+  ['is1','is2','is3','is4','is5'].forEach(id => document.getElementById(id).classList.remove('show'));
+  document.getElementById('apiBlock').classList.remove('show');
+  document.getElementById('draftBadge').classList.remove('show');
+  document.getElementById('jsonPre').innerHTML = '';
+  document.getElementById('wcCount').textContent = '0';
+  document.getElementById('wcCount').classList.remove('done');
+  document.getElementById('articlePreview').textContent = 'Generating article content…';
+  document.getElementById('pdBarTitle').textContent = 'Initialising…';
+  document.getElementById('cap4b').classList.remove('show');
+  document.getElementById('pipeLogTxt').textContent = 'Waiting for job…';
+
+  // JSON outline text (built incrementally)
+  const jsonLines = [
+    '<span class="jk">"unique_angle"</span>: <span class="js">"Zero-knowledge proofs for gov identity"</span>,',
+    '<span class="jk">"h2_sections"</span>: [',
+    '  { <span class="jk">"title"</span>: <span class="js">"What Are Digital Credentials?"</span>,',
+    '    <span class="jk">"internal_link"</span>: <span class="jv">"everycred.com/what-is..."</span> },',
+    '  { <span class="jk">"title"</span>: <span class="js">"Government Use Cases 2025"</span>,',
+    '    <span class="jk">"external_link"</span>: <span class="jv">"nist.gov/identity..."</span> },',
+    '  ... <span class="jn">4 more sections</span>',
+    '],',
+    '<span class="jk">"faq"</span>: [ <span class="jn">3 questions</span> ]',
+  ];
+
+  function litStage(n, logMsg) {
+    document.getElementById('ps'+n).classList.add('lit');
+    document.getElementById('pd'+n).classList.add('show');
+    document.getElementById('pdBarTitle').textContent = ['',
+      'Job Received','Context Loading','Prompt Assembly',
+      'Claude Call 1 — Outline','Claude Call 2 — Article',
+      'Gutenberg Formatting','Featured Image','WordPress POST'
+    ][n];
+    setLog(logMsg);
+  }
+  function doneStage(n) {
+    document.getElementById('ps'+n).classList.remove('lit');
+    document.getElementById('ps'+n).classList.add('done');
+    document.getElementById('pd'+n).classList.remove('show');
+    const conn = document.getElementById('pc'+n);
+    if (conn) conn.classList.add('flow');
+  }
+
+  function setLog(msg) {
+    const el = document.getElementById('pipeLogTxt');
+    el.style.animation = 'none';
+    el.textContent = msg;
+    requestAnimationFrame(() => { el.style.animation = 'slideLog .3s ease forwards'; });
+  }
+
+  st(() => document.getElementById('cap4b').classList.add('show'), 200);
+
+  // Stagger stage entry animation
+  for (let i=1; i<=8; i++) {
+    st(((n) => () => {
+      const ps = document.getElementById('ps'+n);
+      if (ps) { ps.style.transition = 'opacity .3s, transform .3s'; ps.style.opacity = '.4'; ps.style.transform = 'translateX(0)'; }
+    })(i), i * 60);
+  }
+
+  // Stage 1: Job received (t=0.4)
+  st(() => litStage(1, 'Job #1 picked up from queue…'), 400);
+  st(() => doneStage(1), 1600);
+
+  // Stage 2: Context load (t=1.7)
+  st(() => litStage(2, 'Reading context from blogs/everycred/context/…'), 1700);
+  ['cf1','cf2','cf3','cf4'].forEach((id,i) =>
+    st(() => document.getElementById(id).classList.add('show'), 1900 + i*350));
+  st(() => doneStage(2), 3400);
+
+  // Stage 3: Prompt build (t=3.5)
+  st(() => litStage(3, 'Building 2-call pipeline prompt… 6,307 tokens'), 3500);
+  st(() => doneStage(3), 4800);
+
+  // Stage 4: Outline call (t=4.9)
+  st(() => litStage(4, 'Claude Call 1/2 — generating research outline…'), 4900);
+  const jpre = document.getElementById('jsonPre');
+  jpre.innerHTML = '';
+  jsonLines.forEach((line, i) => {
+    st(() => { jpre.innerHTML += line + '\n'; }, 5100 + i*250);
+  });
+  st(() => { setLog('✓ Outline ready — 6 sections · 3 links assigned'); doneStage(4); }, 7500);
+
+  // Stage 5: Article writing (t=7.6)
+  st(() => {
+    litStage(5, 'Claude Call 2/2 — writing full article…');
+    document.getElementById('wcCount').textContent = '0';
+    document.getElementById('wcCount').classList.remove('done');
+    document.getElementById('articlePreview').textContent = 'Digital credentials have become the cornerstone…';
+    let wc = 0;
+    const wcTarget = 1892;
+    const wcStep = setInterval(() => {
+      wc = Math.min(wc + 47, wcTarget);
+      const el = document.getElementById('wcCount');
+      if (el) el.textContent = wc.toLocaleString();
+      if (wc >= wcTarget) { clearInterval(wcStep); if (el) el.classList.add('done'); }
+    }, 80);
+    stTimers.push(wcStep);
+  }, 7600);
+  st(() => { setLog('✓ 1,892 words · $0.04 · outline faithfully followed'); doneStage(5); }, 11200);
+
+  // Stage 6: Gutenberg (t=11.3)
+  st(() => litStage(6, 'Converting HTML → native Gutenberg blocks…'), 11300);
+  ['bl1','bl2','bl3','bl4','bl5'].forEach((id,i) =>
+    st(() => document.getElementById(id).classList.add('show'), 11400 + i*250));
+  st(() => { setLog('✓ 14 blocks ready · wp.blocks.parse() loaded'); doneStage(6); }, 12800);
+
+  // Stage 7: Image (t=12.9)
+  st(() => litStage(7, 'Fetching featured image from Pexels API…'), 12900);
+  ['is1','is2','is3','is4','is5'].forEach((id,i) =>
+    st(() => document.getElementById(id).classList.add('show'), 13000 + i*400));
+  st(() => { setLog('✓ Pexels #3861969 → 28KB WebP → WP Media #8821'); doneStage(7); }, 15100);
+
+  // Stage 8: WP POST (t=15.2)
+  st(() => {
+    litStage(8, 'POST /wp-json/wp/v2/posts → everycred.com…');
+    document.getElementById('apiBlock').classList.add('show');
+  }, 15200);
+  st(() => {
+    document.getElementById('draftBadge').classList.add('show');
+    setLog('✅ Draft #4721 created on everycred.com — job complete!');
+    doneStage(8);
+  }, 16500);
+}
+
+/* ── Scene 4 ── */
+function aS4() {
+  // Reset
+  document.querySelectorAll('.jcard').forEach(c => { c.classList.remove('show','generating','posting','drafted'); });
+  document.querySelectorAll('.logln').forEach(l => l.classList.remove('show'));
+  document.getElementById('costVal').textContent = '$0.00';
+  document.getElementById('aiRing').classList.remove('active');
+  document.getElementById('cap4').classList.remove('show');
+
+  st(() => document.getElementById('cap4').classList.add('show'), 200);
+
+  // Cards slide in
+  [1,2,3,4,5].forEach((n,i) => st(() => document.getElementById('jc'+n).classList.add('show'), 300+i*150));
+
+  // AI ring activates
+  st(() => document.getElementById('aiRing').classList.add('active'), 800);
+
+  // Start particles
+  st(() => {
+    const jc = document.getElementById('jc1').getBoundingClientRect();
+    const ai = document.getElementById('aiRing').getBoundingClientRect();
+    const th = document.getElementById('theater').getBoundingClientRect();
+    const sx = jc.right - th.left;
+    const sy = jc.top + jc.height/2 - th.top;
+    const ex = ai.left - th.left + ai.width/2;
+    const ey = ai.top + ai.height/2 - th.top;
+    startPackets(sx, sy, ex, ey);
+  }, 1000);
+
+  // Job sequence
+  const seq = [900, 2600, 4300, 6000, 7700];
+  seq.forEach((d, i) => {
+    const jid = 'jc'+(i+1), sid = 'js'+(i+1);
+    st(() => { document.getElementById(jid).classList.add('generating'); setJSt(sid,'g'); }, d);
+    st(() => { document.getElementById(jid).classList.remove('generating'); document.getElementById(jid).classList.add('posting'); setJSt(sid,'po'); }, d+1000);
+    st(() => { document.getElementById(jid).classList.remove('posting'); document.getElementById(jid).classList.add('drafted'); setJSt(sid,'d'); }, d+1700);
+  });
+
+  // Logs
+  const logTimes = [1000,1700,2600,3400,4300,5000,6000,6700];
+  logTimes.forEach((d,i) => st(() => document.getElementById('ll'+(i+1)).classList.add('show'), d));
+
+  // Cost counter
+  const costs = [.02,.04,.07,.09,.12];
+  seq.forEach((d,i) => st(() => { document.getElementById('costVal').textContent='$'+costs[i].toFixed(2); }, d+1800));
+}
+
+function setJSt(id, type) {
+  const el = document.getElementById(id);
+  const map = { g:['st-g','🔄 Generating…'], po:['st-po','📤 Posting…'], d:['st-d','✅ Drafted'] };
+  el.className = 'jst '+map[type][0];
+  el.textContent = map[type][1];
+  // Re-trigger flip animation
+  el.style.animation='none'; requestAnimationFrame(()=>{ el.style.animation=''; });
+}
+
+/* ── Scene 5 ── */
+function aS5() {
+  const box = document.getElementById('doneBox');
+  box.classList.remove('show');
+  document.querySelectorAll('.wpc').forEach(w => w.classList.remove('show'));
+  ['sv1','sv2','sv3','sv4'].forEach(id => { document.getElementById(id).textContent = id==='sv1'?'0':id==='sv4'?'0%':id==='sv3'?'$0.00':'0s'; });
+
+  // Confetti
+  st(() => startConfetti(), 0);
+  st(() => stopConfetti(), 4000);
+
+  // Box slides up
+  st(() => box.classList.add('show'), 300);
+
+  // WP cards pop in
+  [1,2,3,4,5].forEach((n,i) => st(() => document.getElementById('wp'+n).classList.add('show'), 700+i*280));
+
+  // Stats count up
+  st(() => countUp('sv1', 0, 5, 1400, v => String(v)), 1400);
+  st(() => countUp('sv2', 0, 263, 1800, v => v < 60 ? v+'s' : Math.floor(v/60)+'m '+String(v%60).padStart(2,'0')+'s'), 1400);
+  st(() => countUp('sv3', 0, 12, 2000, v => '$0.'+String(v).padStart(2,'0')), 1400);
+  st(() => countUp('sv4', 0, 91, 2200, v => v+'%'), 1400);
+
+  // Color the SEO green when done
+  st(() => { document.getElementById('sv4').style.color='var(--ok)'; }, 3700);
+}
+
+function countUp(id, from, to, dur, fmt) {
+  const el = document.getElementById(id);
+  const steps = 35, stepMs = dur/steps;
+  let s = 0;
+  const iv = setInterval(() => {
+    s++; const v = Math.round(from + (to-from)*(s/steps));
+    el.textContent = fmt(v);
+    if (s >= steps) clearInterval(iv);
+  }, stepMs);
+  stTimers.push(iv);
+}
+
+/* ── Boot ── */
+updateUI();
+runAnim(0);
+kick();
+</script>
+</body>
+</html>

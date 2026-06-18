@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <script>if(localStorage.getItem("ct-theme")==="light")document.documentElement.setAttribute("data-theme","light")</script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — CT Automation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<div class="app-layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo">⚡ CT Automation</div>
+      <div class="sub">Content Auto-Draft Tool</div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="/dashboard" class="nav-item" data-path="/dashboard"><span class="icon">📊</span> Dashboard</a>
+      <a href="/jobs"      class="nav-item" data-path="/jobs"><span class="icon">📋</span> All Jobs</a>
+      <a href="/upload"    class="nav-item" data-path="/upload"><span class="icon">📤</span> Upload Spreadsheet</a>
+      <a href="/settings"  class="nav-item active" data-path="/settings"><span class="icon">⚙️</span> Blog Settings</a>
+      <a href="/claude-setup" class="nav-item" data-path="/claude-setup"><span class="icon">🤖</span> Claude Setup</a>
+      <a href="/pitch-demo"  class="nav-item" data-path="/pitch-demo"><span class="icon">🎬</span> Product Demo</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="avatar" id="avatarInitial">A</div>
+        <div><div id="sidebarUsername" style="font-size:13px;font-weight:500">Admin</div></div>
+      </div>
+      <button class="nav-item" onclick="logout()" style="color:var(--danger)"><span class="icon">🚪</span> Logout</button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <div class="page-header flex-between">
+      <div>
+        <h1>Blog Settings</h1>
+        <p>Configure WordPress blog connections and generation rules</p>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openAddModal()">+ Add Blog</button>
+    </div>
+
+    <div id="alertBox"></div>
+
+    <!-- Blog Configs List -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Blog Configurations</h3>
+        <span class="text-muted text-small" id="configCount">Loading...</span>
+      </div>
+      <div id="configsList">
+        <div style="text-align:center;padding:30px;color:var(--text-muted)">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Admin Credentials -->
+    <div class="card">
+      <div class="card-header"><h3>Admin Credentials</h3></div>
+      <div style="display:flex;align-items:flex-start;gap:12px;padding:4px 0">
+        <span style="font-size:20px;flex-shrink:0">🔒</span>
+        <div>
+          <p style="margin:0 0 8px;font-size:13.5px">Admin username and password are managed via the <code>.env</code> file.</p>
+          <p class="text-muted text-small" style="margin:0 0 10px">The server syncs credentials from <code>.env</code> on every restart — any change made here would be overwritten. To update your password:</p>
+          <ol class="text-small" style="margin:0 0 0 16px;color:var(--text-muted);line-height:1.9">
+            <li>Edit <code>.env</code> and update <code>ADMIN_PASSWORD=your_new_password</code></li>
+            <li>Restart the server — the new password takes effect immediately</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Add/Edit Blog Modal -->
+<div id="blogModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:600px">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h2 id="modalTitle">Add Blog Configuration</h2>
+    <div id="modalAlert"></div>
+
+    <form id="blogForm">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Slug <span style="color:var(--danger)">*</span></label>
+          <input type="text" id="fSlug" class="form-control" placeholder="vc" pattern="[a-z0-9_]+" id="fSlug">
+          <div class="form-hint">Unique ID: lowercase letters, numbers, underscores</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Blog Name <span style="color:var(--danger)">*</span></label>
+          <input type="text" id="fName" class="form-control" placeholder="ViitorCloud Blog">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Domain <span style="color:var(--danger)">*</span></label>
+          <input type="text" id="fDomain" class="form-control" placeholder="viitorcloud.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">WordPress URL <span style="color:var(--danger)">*</span></label>
+          <input type="url" id="fWpUrl" class="form-control" placeholder="https://viitorcloud.com">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">WP Admin Username <span style="color:var(--danger)">*</span></label>
+          <input type="text" id="fWpUser" class="form-control" placeholder="admin" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label">WP Admin Password <span style="color:var(--danger)">*</span></label>
+          <input type="password" id="fWpPass" class="form-control" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Posting Method</label>
+        <select id="fWpMethod" class="form-control" onchange="toggleAppPassword()">
+          <option value="api">REST API (recommended — requires Application Password)</option>
+          <option value="browser">Browser Automation (Playwright — any WP install)</option>
+        </select>
+      </div>
+      <div class="form-group" id="appPasswordGroup">
+        <label class="form-label">WordPress Application Password</label>
+        <input type="password" id="fWpAppPass" class="form-control" placeholder="xxxx xxxx xxxx xxxx xxxx xxxx" autocomplete="new-password">
+        <div class="form-hint">Create in WP Admin → Users → Profile → Application Passwords section</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Default Category ID</label>
+          <input type="text" id="fCategory" class="form-control" placeholder="1" value="1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Author ID</label>
+          <input type="number" id="fAuthorId" class="form-control" placeholder="1" value="1">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Context Folder Path</label>
+          <input type="text" id="fContextPath" class="form-control" placeholder="./vc_glog/context">
+          <div class="form-hint">Relative path from project root to markdown context files</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Generation Rules File</label>
+          <input type="text" id="fRulesPath" class="form-control" placeholder="./rules/vc_blog_generation.md">
+        </div>
+      </div>
+      <div class="flex gap-2 mt-3">
+        <button type="submit" class="btn btn-primary" id="saveBtn">Save Configuration</button>
+        <button type="button" id="testWpBtn" class="btn btn-secondary" onclick="testConnection()">🔌 Test WP Connection</button>
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/assets/js/common.js"></script>
+<script>
+let editingId = null;
+
+(async () => {
+  const me = await API.get('/api/auth/me');
+  if (!me || !me.loggedIn) { location.href = '/'; return; }
+  document.getElementById('sidebarUsername').textContent = me.username;
+  document.getElementById('avatarInitial').textContent = me.username[0].toUpperCase();
+  await loadConfigs();
+})();
+
+async function loadConfigs() {
+  const data = await API.get('/api/configs');
+  if (!data) return;
+  document.getElementById('configCount').textContent = `${data.configs.length} configured`;
+  const list = document.getElementById('configsList');
+  if (!data.configs.length) {
+    list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">No blog configurations yet. Click "+ Add Blog" to add one.</div>';
+    return;
+  }
+  list.innerHTML = data.configs.map(c => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-weight:500">${c.name} <span class="badge badge-${c.is_active?'drafted':'skipped'}" style="margin-left:6px">${c.is_active?'Active':'Inactive'}</span></div>
+        <div class="text-small text-muted mt-2">${c.wp_url} · Method: ${c.wp_method} · Context: ${c.context_path||'none'}</div>
+      </div>
+      <div class="flex gap-2" style="align-items:center">
+        <span id="test-result-${c.id}" style="font-size:11px"></span>
+        <button class="btn btn-secondary btn-sm" onclick="quickTestConfig(${c.id}, this)" title="Test WP connection">🔌 Test</button>
+        <button class="btn btn-secondary btn-sm" onclick="editConfig(${c.id})">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteConfig(${c.id}, '${c.name}')">Delete</button>
+      </div>
+    </div>
+  `).join('') + '<div style="padding-top:4px"></div>';
+}
+
+function openAddModal() {
+  editingId = null;
+  document.getElementById('modalTitle').textContent = 'Add Blog Configuration';
+  document.getElementById('blogForm').reset();
+  document.getElementById('fSlug').disabled = false;
+  document.getElementById('modalAlert').innerHTML = '';
+  toggleAppPassword();
+  document.getElementById('blogModal').classList.remove('hidden');
+}
+
+async function editConfig(id) {
+  const data = await API.get(`/api/configs/${id}`);
+  if (!data) return;
+  const c = data.config;
+  editingId = id;
+  document.getElementById('modalTitle').textContent = 'Edit Blog Configuration';
+  document.getElementById('fSlug').value = c.slug;
+  document.getElementById('fSlug').disabled = true;
+  document.getElementById('fName').value = c.name;
+  document.getElementById('fDomain').value = c.domain;
+  document.getElementById('fWpUrl').value = c.wp_url;
+  document.getElementById('fWpUser').value = c.wp_username;
+  document.getElementById('fWpPass').value = '';
+  document.getElementById('fWpMethod').value = c.wp_method;
+  document.getElementById('fWpAppPass').value = '';
+  document.getElementById('fCategory').value = c.wp_category;
+  document.getElementById('fAuthorId').value = c.wp_author_id;
+  document.getElementById('fContextPath').value = c.context_path || '';
+  document.getElementById('fRulesPath').value = c.rules_path || '';
+  document.getElementById('modalAlert').innerHTML = '';
+  toggleAppPassword();
+  document.getElementById('blogModal').classList.remove('hidden');
+}
+
+function toggleAppPassword() {
+  const method = document.getElementById('fWpMethod').value;
+  document.getElementById('appPasswordGroup').style.display = method === 'api' ? '' : 'none';
+}
+
+document.getElementById('blogForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Saving...';
+
+  const body = {
+    slug: document.getElementById('fSlug').value.trim().toLowerCase(),
+    name: document.getElementById('fName').value.trim(),
+    domain: document.getElementById('fDomain').value.trim(),
+    wp_url: document.getElementById('fWpUrl').value.trim(),
+    wp_username: document.getElementById('fWpUser').value.trim(),
+    wp_method: document.getElementById('fWpMethod').value,
+    wp_app_password: document.getElementById('fWpAppPass').value,
+    wp_category: document.getElementById('fCategory').value.trim() || '1',
+    wp_author_id: parseInt(document.getElementById('fAuthorId').value) || 1,
+    context_path: document.getElementById('fContextPath').value.trim(),
+    rules_path: document.getElementById('fRulesPath').value.trim(),
+  };
+  const pass = document.getElementById('fWpPass').value;
+  if (pass) body.wp_password = pass;
+
+  let data;
+  if (editingId) {
+    data = await API.put(`/api/configs/${editingId}`, body);
+  } else {
+    data = await API.post('/api/configs', body);
+  }
+
+  btn.disabled = false; btn.innerHTML = 'Save Configuration';
+
+  if (data && data.ok) {
+    closeModal();
+    await loadConfigs();
+    showAlert(document.getElementById('alertBox'), 'Blog configuration saved!', 'success');
+  } else {
+    showAlert(document.getElementById('modalAlert'), data?.error || 'Save failed.', 'error');
+  }
+});
+
+async function testConnection() {
+  if (!editingId) {
+    showAlert(document.getElementById('modalAlert'), 'Save the configuration first, then test the connection.', 'warning');
+    return;
+  }
+  const btn = document.getElementById('testWpBtn');
+  btn.disabled = true; btn.textContent = 'Testing...';
+  const data = await API.post(`/api/configs/${editingId}/test`);
+  btn.disabled = false; btn.textContent = '🔌 Test WP Connection';
+  if (data && data.ok) {
+    showAlert(document.getElementById('modalAlert'), `✅ Connected! Site: "${data.name}"`, 'success');
+  } else {
+    showAlert(document.getElementById('modalAlert'), `❌ Connection failed: ${data?.error || 'Unknown error'}`, 'error');
+  }
+}
+
+async function quickTestConfig(id, btn) {
+  const result = document.getElementById(`test-result-${id}`);
+  btn.disabled = true; btn.textContent = '…';
+  result.textContent = '';
+  const data = await API.post(`/api/configs/${id}/test`);
+  btn.disabled = false; btn.textContent = '🔌 Test';
+  if (data?.ok) {
+    result.innerHTML = `<span style="color:var(--success)">✓ Connected</span>`;
+  } else {
+    result.innerHTML = `<span style="color:var(--danger)" title="${escHtml(data?.error||'')}">✗ Failed</span>`;
+  }
+}
+
+async function deleteConfig(id, name) {
+  if (!confirm(`Delete "${name}"? This cannot be undone if jobs exist.`)) return;
+  const data = await API.delete(`/api/configs/${id}`);
+  if (data && data.ok) {
+    await loadConfigs();
+    showAlert(document.getElementById('alertBox'), 'Configuration deleted.', 'success');
+  } else {
+    showAlert(document.getElementById('alertBox'), data?.error || 'Delete failed.', 'error');
+  }
+}
+
+function closeModal() {
+  document.getElementById('blogModal').classList.add('hidden');
+  editingId = null;
+}
+
+</script>
+</body>
+</html>
