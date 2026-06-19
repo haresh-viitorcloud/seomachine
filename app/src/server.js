@@ -170,7 +170,7 @@ function seedBlogConfigsFromEnv() {
       envCategory || existing?.wp_category || '1',
       envAuthor || existing?.wp_author_id || 1,
       process.env[`BLOG_${SLUG}_CONTEXT_PATH`] || '',
-      process.env[`BLOG_${SLUG}_RULES_PATH`] || `./rules/${slug}_blog_generation.md`,
+      process.env[`BLOG_${SLUG}_RULES_PATH`] || `../rules/${slug}_blog_generation.md`,
     ];
     if (!existing) {
       db.prepare(`
