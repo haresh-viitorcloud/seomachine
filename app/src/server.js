@@ -61,7 +61,12 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    // Secure cookies require HTTPS. Behind an HTTPS reverse proxy keep this true;
+    // for a local HTTP run (e.g. http://localhost) set COOKIE_SECURE=false in .env,
+    // otherwise the browser drops the session cookie and login loops back to the page.
+    secure: process.env.COOKIE_SECURE !== undefined
+      ? process.env.COOKIE_SECURE === 'true'
+      : process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24h
   },
