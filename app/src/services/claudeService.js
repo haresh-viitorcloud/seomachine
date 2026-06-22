@@ -245,7 +245,7 @@ Produce exactly 3 distinct CTAs that drive business and generate qualified leads
 
 ## CRITICAL OUTPUT FORMAT
 You MUST respond with ONLY a single valid JSON object. No markdown fences, no commentary, no text before or after. The exact format:
-{"title":"<H1 / post title, includes primary keyword>","seo_title":"<50-60 char SEO title, starts with primary keyword, has a number + a power word>","slug":"<keyword-rich-url-slug>","meta_description":"<150-160 chars, primary keyword in first 120 chars>","content":"<full HTML>","image_prompt":"...","image_alt":"<short alt text that includes the primary keyword>","tags":["..."],"faq":[{"question":"...","answer":"..."}],"cta_category":"<ai|cloud|digital_transformation|data|technology_consulting|digital_experience|default>","ctas":[{"heading":"...","description":"...","button":"..."},{"heading":"...","description":"...","button":"..."},{"heading":"...","description":"...","button":"..."}]}`;
+{"title":"<H1 / post title, includes primary keyword>","seo_title":"<50-60 char SEO title, starts with primary keyword, has a number + a power word>","slug":"<keyword-rich-url-slug>","meta_description":"<150-160 chars, primary keyword in first 120 chars>","content":"<full HTML>","image_prompt":"<DALL-E/AI image generation prompt: dark cinematic 3D digital illustration depicting [2-4 specific visual elements that represent this article's topic — e.g. glowing server racks, holographic shields, floating data nodes]. Deep navy/dark blue background, dramatic teal and blue accent lighting, photorealistic render quality, cinematic depth of field. ABSOLUTELY NO text, NO words, NO labels, NO captions, NO letters anywhere in the image. Keep the upper-left corner visually calm with soft low-contrast background for logo placement.>","image_alt":"<short alt text that includes the primary keyword>","tags":["..."],"faq":[{"question":"...","answer":"..."}],"cta_category":"<ai|cloud|digital_transformation|data|technology_consulting|digital_experience|default>","ctas":[{"heading":"...","description":"...","button":"..."},{"heading":"...","description":"...","button":"..."},{"heading":"...","description":"...","button":"..."}]}`;
 }
 
 function buildOutlinePrompt(row) {
@@ -740,6 +740,10 @@ async function generateBlogContent(row, contextPath, rulesPath, onProgress, test
   const mode = await getGenerationMode();
   if (onProgress) onProgress(`Using ${mode === 'cli' ? 'Claude CLI (your session)' : 'Claude API key'}...`);
 
+  // Run CLI with cwd = seomachine repo root so context files in ../blogs/ are
+  // within Claude Code's allowed working directory (same as seomachine engine).
+  const seomachineRoot = require('./seomachineService').resolveRoot();
+
   let totalCost = 0;
   let tokensIn = 0;
   let tokensOut = 0;
@@ -753,7 +757,7 @@ async function generateBlogContent(row, contextPath, rulesPath, onProgress, test
   try {
     let outlineRaw;
     if (mode === 'cli') {
-      outlineRaw = extractCliResult(await generateViaCli(systemContent, outlinePrompt, null));
+      outlineRaw = extractCliResult(await generateViaCli(systemContent, outlinePrompt, null, seomachineRoot));
       totalCost += extractCliResult._lastCostUsd || 0;
       tokensIn += extractCliResult._lastTokensIn || 0;
       tokensOut += extractCliResult._lastTokensOut || 0;
@@ -776,7 +780,7 @@ async function generateBlogContent(row, contextPath, rulesPath, onProgress, test
 
   let rawText;
   if (mode === 'cli') {
-    const cliOutput = await generateViaCli(systemContent, userPrompt, onProgress);
+    const cliOutput = await generateViaCli(systemContent, userPrompt, onProgress, seomachineRoot);
     rawText = extractCliResult(cliOutput);
     totalCost += extractCliResult._lastCostUsd || 0;
     tokensIn += extractCliResult._lastTokensIn || 0;

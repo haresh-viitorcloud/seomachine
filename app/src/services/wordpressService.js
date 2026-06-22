@@ -175,8 +175,12 @@ async function postViaBrowser(config, content, rowData, onProgress) {
 
   const browser = await chromium.launch({
     headless: true,
+    // Use system-installed Chrome when Playwright's own Chromium cache is absent.
+    // Falls back to Playwright's bundled binary if the system path doesn't exist.
+    ...(process.platform === 'linux' && require('fs').existsSync('/usr/bin/google-chrome')
+      ? { executablePath: '/usr/bin/google-chrome' }
+      : {}),
     // --no-sandbox is required on Linux when running as root/in containers
-    // On Windows these flags are not needed and can cause issues
     args: process.platform === 'linux' ? ['--no-sandbox', '--disable-setuid-sandbox'] : [],
   });
 
