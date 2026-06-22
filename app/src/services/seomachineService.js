@@ -132,7 +132,7 @@ CRITICAL OUTPUT FORMAT — respond with ONLY a single valid JSON object. No pros
   "slug": "keyword-rich-hyphenated-url-slug",
   "meta_description": "150-160 chars, primary keyword within the first 120 chars",
   "content": "FULL article body as clean semantic HTML using <h2>,<h3>,<p>,<ul>,<ol>,<li>,<strong>,<em>,<a href> ONLY. NO markdown. NO <html>/<head>/<body> wrappers. Do NOT include the H1 (it is the title).",
-  "image_prompt": "a concise stock-photo search query for the featured image",
+  "image_prompt": "one vivid sentence describing a warm, candid, photorealistic photo of real PEOPLE actively interacting or collaborating (e.g. a professional helping, talking with, or working alongside someone) in a real-world setting directly relevant to the article topic. Name the people, their action, and the environment. Favour human connection over screens/equipment. No charts, no diagrams, no screens-only shots, no text",
   "image_alt": "descriptive alt text that includes the primary keyword",
   "tags": ["tag1","tag2","tag3"],
   "faq": [{"question":"...","answer":"..."}],

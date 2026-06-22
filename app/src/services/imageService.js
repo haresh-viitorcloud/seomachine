@@ -7,11 +7,13 @@
  *   3. Unsplash        — if UNSPLASH_ACCESS_KEY set
  *   4. SVG gradient    — always works, zero-dep fallback
  *
- * After any source succeeds, the blog logo is composited top-left (30px padding)
- * with a dark navy semi-transparent rounded backing so logos are readable on any
- * background (critical for all-white logos like ViitorCloud).
+ * After any source succeeds, the blog logo is composited top-left. By default it
+ * sits on a dark navy semi-transparent rounded backing so logos are readable on
+ * any background. ViitorCloud opts out of the backing — its white logo is given a
+ * soft drop shadow instead so it integrates into the image naturally.
  *
- * Output: 1200×630 WebP under 100KB.
+ * Output dimensions are per-blog (see imageSpecForBlog): ViitorCloud renders at
+ * 1520×1008, every other blog at 1200×630. WebP, kept under 100KB.
  */
 
 const fs   = require('fs');
@@ -71,6 +73,29 @@ function resolveLogoPath(blog) {
   return null;
 }
 
+/**
+ * Per-blog featured-image spec.
+ *   - ViitorCloud uses a 1520×1008 canvas (its theme's featured-image slot expects
+ *     that size; delivering the standard 1200×630 made the theme stretch the image).
+ *     Its all-white logo also opts OUT of the dark navy backing — a soft drop shadow
+ *     is used instead so the logo integrates naturally.
+ *   - Every other blog keeps the standard 1200×630 + navy logo backing.
+ *
+ * VC is detected by slug, with context_path / name fallbacks so it still resolves
+ * if a caller passes a partial blog object.
+ */
+function imageSpecForBlog(blog = {}) {
+  const slug = String(blog.slug || '').toLowerCase();
+  const ctx  = String(blog.context_path || '').toLowerCase().replace(/\\/g, '/');
+  const name = String(blog.name || '').toLowerCase();
+  const isVc = slug === 'vc'
+    || /\/blogs\/vc(\/|$)/.test(ctx)
+    || name.includes('viitorcloud');
+  return isVc
+    ? { width: 1520, height: 1008, logoBacking: false, bright: true,  preferStock: false }
+    : { width: 1200, height: 630,  logoBacking: true,  bright: false, preferStock: false };
+}
+
 function escXml(s) {
   return String(s || '')
     .replace(/&/g, '&amp;')
@@ -109,30 +134,61 @@ function wrapText(text, maxChars) {
  *
  * Endpoint: https://image.pollinations.ai/prompt/{encoded_prompt}?width=W&height=H&nologo=true&model=flux
  *
- * Returns a 1200×630 WebP Buffer under 100KB, or null on failure.
+ * Returns a width×height WebP Buffer under 100KB, or null on failure.
+ *
+ * @param {string} imagePrompt - subject description from Claude
+ * @param {object} [opts]
+ * @param {number} [opts.width=1200]
+ * @param {number} [opts.height=630]
+ * @param {boolean} [opts.bright=false] - use a bright/airy style + brightness lift
+ *   (ViitorCloud) instead of the default dark-cinematic aesthetic.
  */
-async function fetchPollinationsImage(imagePrompt) {
+async function fetchPollinationsImage(imagePrompt, opts = {}) {
+  const { width = 1200, height = 630, bright = false } = opts;
   try {
     const topic = (imagePrompt || 'professional technology concept').substring(0, 800);
 
     // Build a style-augmented prompt: preserve the subject from Claude's image_prompt
-    // and append dark-tech style directives that match the desired sample aesthetic.
-    const fullPrompt = [
-      topic,
-      'dark cinematic 3D digital illustration',
-      'deep navy blue background',
-      'dramatic teal electric blue accent lighting',
-      'glowing holographic elements',
-      'photorealistic render quality',
-      'cinematic depth of field',
-      'upper left corner visually calm',
-      'no text no words no letters no labels',
-    ].join(', ');
+    // and append style directives. ViitorCloud uses a bright, clean, airy aesthetic;
+    // all other blogs keep the dark-cinematic look.
+    const styleDirectives = bright
+      ? [
+          'ultra clean high-end commercial photograph, crisp razor-sharp focus, high resolution, immaculate detail',
+          'real people, modern professionals interacting naturally with confident genuine expressions',
+          'accurate realistic human anatomy, natural hands with exactly five fingers per hand holding objects correctly',
+          'bright pristine modern environment relevant to the topic (upscale retail or tech office), polished and spotless',
+          'professional studio-quality lighting, photorealistic with a clean polished 3D commercial render quality',
+          'subtle futuristic glowing soft-blue holographic interface accents, tasteful high-tech atmosphere',
+          'vivid yet natural colours, gentle depth of field, sharp and clear',
+          'upper left area bright and uncluttered for logo placement',
+          'not cartoonish, not blurry, not soft, not low quality, not distorted',
+          'no deformed hands, no extra fingers, no extra hands, no extra arms, no extra limbs',
+          'no text no words no letters no labels no numbers no watermark no UI text',
+        ]
+      : [
+          'dark cinematic 3D digital illustration',
+          'deep navy blue background',
+          'dramatic teal electric blue accent lighting',
+          'glowing holographic elements',
+          'photorealistic render quality',
+          'cinematic depth of field',
+          'upper left corner visually calm',
+          'no text no words no letters no labels',
+        ];
+    // ViitorCloud: append the requested instruction immediately after Claude's
+    // content-derived subject, then the style/no-text directives (the trailing
+    // "no text" directive reinforces "Do not add text into it" so the size numbers
+    // in the instruction don't get rendered as on-image text).
+    const VC_INSTRUCTION = 'based on the blog content, create an image of size 1520 x 1008. Do not add text into it';
+    const promptParts = bright
+      ? [topic, VC_INSTRUCTION, ...styleDirectives]
+      : [topic, ...styleDirectives];
+    const fullPrompt = promptParts.join(', ');
 
     const encoded = encodeURIComponent(fullPrompt);
     // seed makes each article get a unique image; nologo removes Pollinations watermark
     const seed = Math.floor(Math.random() * 9999999);
-    const url = `https://image.pollinations.ai/prompt/${encoded}?width=1200&height=630&nologo=true&model=flux&seed=${seed}`;
+    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&nologo=true&model=flux&seed=${seed}`;
 
     console.log('[ImageService] Pollinations.ai generating image (Flux)...');
     const rawBuffer = await downloadImage(url, 90000);  // up to 90s for generation
@@ -142,10 +198,17 @@ async function fetchPollinationsImage(imagePrompt) {
     }
 
     const sharp = require('sharp');
-    let buffer = await sharp(rawBuffer)
-      .resize(1200, 630, { fit: 'cover', position: 'centre' })
-      .webp({ quality: 80 })
-      .toBuffer();
+    // Pollinations' free tier caps output resolution (~0.6 MP), so it returns a
+    // smaller image at the requested ASPECT (e.g. 943×625 for a 1520×1008 request).
+    // Upscale to the exact target with a high-quality kernel + light sharpening so
+    // the result stays crisp (soft upscales read as "stretched"). Aspect is
+    // preserved by `cover`, so there is no geometric distortion.
+    let pipeline = sharp(rawBuffer)
+      .resize(width, height, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 });
+    if (bright) pipeline = pipeline.modulate({ brightness: 1.06, saturation: 1.04 });
+    // Sharper for the "clean/clear" look the brand wants (counters free-tier upscale softness)
+    pipeline = pipeline.sharpen({ sigma: bright ? 1.3 : 1 });
+    let buffer = await pipeline.webp({ quality: 82 }).toBuffer();
 
     if (buffer.length > 100 * 1024) {
       buffer = await sharp(buffer).webp({ quality: 60 }).toBuffer();
@@ -233,6 +296,71 @@ async function fetchUnsplashPhoto(keyword) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Source 0 — OpenAI Images (gpt-image-1, with dall-e-3 fallback) — PAID, top quality
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Generate a featured image via the OpenAI Images API. Highest quality source
+ * (matches the brand's clean/realistic reference samples). PAID — billed per image.
+ *
+ * Key is read from OPENAI_API_KEY or OPEN_AI_KEY. If absent, returns null (the
+ * pipeline silently falls back to the free sources). Tries gpt-image-1 first, then
+ * dall-e-3 (e.g. if the org isn't verified for gpt-image-1). The chosen model and
+ * token usage are recorded on fetchOpenAIImage._lastModel / ._lastUsage for cost
+ * reporting. The API key is NEVER logged.
+ *
+ * Returns a raw PNG/image Buffer (caller resizes to the exact target), or null.
+ */
+async function fetchOpenAIImage(imagePrompt, opts = {}) {
+  const { width = 1200, height = 630, bright = false } = opts;
+  fetchOpenAIImage._lastModel = null;
+  fetchOpenAIImage._lastUsage = null;
+  fetchOpenAIImage._lastError = null;
+
+  const apiKey = process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY;
+  if (!apiKey) return null;
+
+  const topic = (imagePrompt || 'professional business scene').substring(0, 900);
+  const styleText = bright
+    ? 'Based on the blog content and title, create an image of size 1520 x 1008. Do not add text into the image. Style: tech-themed with technology photography. Do not include any text in the image; maintain a clean and simple design.'
+    : 'Based on the blog content and title, create an image of size 1200 x 630. Do not add text into the image. Style: tech-themed with technology photography. Do not include any text in the image; maintain a clean and simple design.';
+  const prompt = `${styleText}\n\nScene: ${topic}.\n\nStrict requirements: absolutely no text, no words, no letters, no numbers, no captions, no watermark, and no logos anywhere in the image.`;
+
+  const landscape = width >= height;
+  const attempts = [
+    { model: 'gpt-image-1', payload: { size: landscape ? '1536x1024' : '1024x1536', quality: process.env.OPENAI_IMAGE_QUALITY || 'high' } },
+    { model: 'dall-e-3',    payload: { size: landscape ? '1792x1024' : '1024x1792', quality: 'hd', response_format: 'b64_json' } },
+  ];
+
+  for (const att of attempts) {
+    try {
+      const res = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: att.model, prompt, n: 1, ...att.payload }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        fetchOpenAIImage._lastError = `${att.model}: HTTP ${res.status} ${txt.substring(0, 200)}`;
+        console.warn(`[ImageService] OpenAI ${att.model} failed: HTTP ${res.status}`);
+        continue;  // fall through to next model
+      }
+      const json = await res.json();
+      const b64 = json?.data?.[0]?.b64_json;
+      if (!b64) { fetchOpenAIImage._lastError = `${att.model}: no image data in response`; continue; }
+      fetchOpenAIImage._lastModel = att.model;
+      fetchOpenAIImage._lastUsage = json.usage || null;
+      console.log(`[ImageService] OpenAI image generated via ${att.model}`);
+      return Buffer.from(b64, 'base64');
+    } catch (e) {
+      fetchOpenAIImage._lastError = `${att.model}: ${e.message}`;
+      console.warn(`[ImageService] OpenAI ${att.model} error: ${e.message}`);
+    }
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Source 4 — SVG gradient fallback
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -241,7 +369,7 @@ async function fetchUnsplashPhoto(keyword) {
  * No text, no titles, no keywords — clean canvas for logo compositing.
  * Uses theme-aware color palettes and abstract geometric shapes.
  */
-async function generateFeaturedImage(title, keyword, theme, brandName = '', brandDomain = '') {
+async function generateFeaturedImage(title, keyword, theme, brandName = '', brandDomain = '', width = 1200, height = 630) {
   const sharp = require('sharp');
 
   const themes = {
@@ -256,8 +384,10 @@ async function generateFeaturedImage(title, keyword, theme, brandName = '', bran
   const themeKey = (theme || '').toLowerCase();
   const t = themes[Object.keys(themes).find(k => themeKey.includes(k)) || 'default'];
 
-  // Abstract geometric composition — no text anywhere
-  const svg = `<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+  // Abstract geometric composition — no text anywhere. The artwork is authored in
+  // a fixed 1200×630 coordinate space; viewBox + "slice" scales it up to the target
+  // canvas proportionally (fills, never stretches) so VC's 1520×1008 isn't distorted.
+  const svg = `<svg width="${width}" height="${height}" viewBox="0 0 1200 630" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="${t.bg1}"/>
@@ -341,7 +471,7 @@ async function generateFeaturedImage(title, keyword, theme, brandName = '', bran
 </svg>`;
 
   const buffer = await sharp(Buffer.from(svg))
-    .resize(1200, 630)
+    .resize(width, height, { fit: 'cover' })
     .webp({ quality: 75, effort: 4 })
     .toBuffer();
 
@@ -358,22 +488,36 @@ async function generateFeaturedImage(title, keyword, theme, brandName = '', bran
  * Composite the blog logo onto the top-left corner of an image.
  *
  * Layout:
- *   - Logo resized to fit within 180×75px (aspect ratio preserved)
- *   - Placed at 50px from top-left edges
- *   - Semi-transparent white rounded backing (opacity 0.82) ensures the logo
- *     reads clearly on any generated background color
+ *   - Logo resized to fit within a bounding box, scaled with the canvas so it stays
+ *     proportional on the larger ViitorCloud image as well as the standard size.
+ *   - Placed with padding from the top-left edges.
+ *   - With `backing` on (default): a dark navy semi-transparent rounded pill behind
+ *     the logo keeps it readable on any background.
+ *   - With `backing` off (ViitorCloud): no pill — a soft drop shadow lets the white
+ *     logo integrate naturally while staying legible on lighter patches.
+ *
+ * @param {Buffer} imageBuffer  - the base image
+ * @param {string} logoPath     - resolved logo file path (svg/png/…)
+ * @param {object} [opts]
+ * @param {boolean} [opts.backing=true] - draw the navy backing pill behind the logo
  *
  * Returns the composited WebP buffer, or the original buffer if the logo
  * file is missing or compositing fails for any reason.
  */
-async function compositeLogoOnImage(imageBuffer, logoPath) {
+async function compositeLogoOnImage(imageBuffer, logoPath, opts = {}) {
+  const { backing = true, quality = 75, maxBytes = 100 * 1024 } = opts;
   if (!logoPath) return imageBuffer;
   try {
     const sharp = require('sharp');
-    const PADDING   = 30;  // distance from image edges
-    const INNER_PAD = 16;  // padding inside the backing pill
-    const MAX_W     = 220;
-    const MAX_H     = 85;
+
+    // Scale logo + padding with the image so the logo stays proportional on the
+    // larger ViitorCloud canvas (1520×1008) as well as the standard 1200×630.
+    const meta = await sharp(imageBuffer).metadata();
+    const scale = (meta.width || 1200) / 1200;
+    const PADDING   = Math.round(30 * scale);  // distance from image edges
+    const INNER_PAD = Math.round(16 * scale);  // padding inside the backing pill
+    const MAX_W     = Math.round(220 * scale);
+    const MAX_H     = Math.round(85 * scale);
 
     // Render logo SVG → PNG, resized to fit within bounding box
     const logoBuffer = await sharp(logoPath)
@@ -383,28 +527,47 @@ async function compositeLogoOnImage(imageBuffer, logoPath) {
 
     const { width: lw, height: lh } = await sharp(logoBuffer).metadata();
 
-    // Dark navy semi-transparent backing — works for all logos regardless of
-    // whether they use white, coloured, or mixed-colour paths. White backings
-    // make all-white logos (e.g. Viitor Cloud) invisible.
-    const bw = lw + INNER_PAD * 2;
-    const bh = lh + INNER_PAD * 2;
-    const backingSvg = Buffer.from(
-      `<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">` +
-      `<rect width="${bw}" height="${bh}" rx="12" ry="12" fill="#0d1b3e" fill-opacity="0.88"/>` +
-      `</svg>`
-    );
-    const backingBuffer = await sharp(backingSvg).png().toBuffer();
+    const layers = [];
+
+    if (backing) {
+      // Dark navy semi-transparent backing — works for coloured/mixed logos
+      // regardless of background. (ViitorCloud opts out; see else branch.)
+      const bw = lw + INNER_PAD * 2;
+      const bh = lh + INNER_PAD * 2;
+      const backingSvg = Buffer.from(
+        `<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">` +
+        `<rect width="${bw}" height="${bh}" rx="12" ry="12" fill="#0d1b3e" fill-opacity="0.88"/>` +
+        `</svg>`
+      );
+      const backingBuffer = await sharp(backingSvg).png().toBuffer();
+      layers.push({ input: backingBuffer, top: PADDING - INNER_PAD, left: PADDING - INNER_PAD, blend: 'over' });
+    } else {
+      // No pill — soft drop shadow. Build a faded black silhouette of the logo
+      // (dest-in keeps the logo's shape/alpha over a 45%-opaque black canvas),
+      // blur it, and lay it slightly offset beneath the crisp logo. This gives
+      // depth/legibility without the hard "box" look.
+      const blurSigma = Math.max(3, Math.round(5 * scale));
+      const offset    = Math.max(1, Math.round(2 * scale));
+      const shadow = await sharp({
+        create: { width: lw, height: lh, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0.45 } },
+      })
+        .composite([{ input: logoBuffer, blend: 'dest-in' }])  // mask black canvas to logo shape
+        .blur(blurSigma)
+        .png()
+        .toBuffer();
+      layers.push({ input: shadow, top: PADDING + offset, left: PADDING + offset, blend: 'over' });
+    }
+
+    layers.push({ input: logoBuffer, top: PADDING, left: PADDING, blend: 'over' });
 
     const result = await sharp(imageBuffer)
-      .composite([
-        { input: backingBuffer, top: PADDING - INNER_PAD, left: PADDING - INNER_PAD, blend: 'over' },
-        { input: logoBuffer,    top: PADDING,             left: PADDING,             blend: 'over' },
-      ])
-      .webp({ quality: 75 })
+      .composite(layers)
+      .webp({ quality })
       .toBuffer();
 
-    return result.length > 100 * 1024
-      ? sharp(result).webp({ quality: 55 }).toBuffer()
+    // Re-compress only if it exceeds the (per-source) size ceiling.
+    return result.length > maxBytes
+      ? sharp(result).webp({ quality: Math.max(50, quality - 20) }).toBuffer()
       : result;
 
   } catch (err) {
@@ -420,9 +583,11 @@ async function compositeLogoOnImage(imageBuffer, logoPath) {
 /**
  * Generates and saves a featured image for a blog post.
  *
- * Pipeline:
- *   Pollinations.ai (Flux) → Pexels → Unsplash → SVG gradient  (first success wins)
- *   Then: logo composited top-left on the winning image
+ * Pipeline (first success wins), order depends on the blog's spec:
+ *   - preferStock blogs (ViitorCloud): Pexels → Unsplash → Pollinations(AI) → SVG gradient
+ *   - all other blogs:                 Pollinations(AI) → Pexels → Unsplash → SVG gradient
+ *   Then: logo composited top-left on the winning image.
+ *   (Pexels/Unsplash require free API keys; without them those steps are skipped.)
  *
  * @param {string} title        - Post title (used by SVG gradient fallback)
  * @param {string} keyword      - Primary keyword
@@ -437,6 +602,7 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}) {
   let source = 'gradient';
 
   const logoPath   = resolveLogoPath(blog);
+  const spec       = imageSpecForBlog(blog);  // { width, height, logoBacking }
 
   // Build a clean stock-photo search query: strip DALL-E style directives so only
   // the subject matter remains (e.g. "cloud computing security" not the full prompt).
@@ -453,60 +619,88 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}) {
         .replace(/\s+/g, ' ')
         .trim()
     : (keyword || theme || 'technology');
-  // Append "concept" so Pexels/Unsplash favours abstract/conceptual images over
-  // text-heavy infographics and presentation screenshots
-  const searchQuery = rawSubject ? `${rawSubject} concept` : 'technology concept';
+  // For real-stock sources (Pexels/Unsplash) keep the subject as-is (real people
+  // photos); for the AI/abstract path append "concept" to bias away from text-heavy
+  // infographics. preferStock blogs (ViitorCloud) use the people-oriented subject.
+  const stockQuery = rawSubject || (keyword || 'business team people');
+  const aiQuery    = rawSubject ? `${rawSubject} concept` : 'technology concept';
 
-  // ── Priority 1: Pollinations.ai (free Flux model, no API key needed) ──
-  try {
-    const aiBuffer = await fetchPollinationsImage(imagePrompt || keyword);
-    if (aiBuffer) { buffer = aiBuffer; source = 'pollinations'; }
-  } catch { /* fallthrough */ }
-
-  // ── Priority 2: Pexels ──
-  if (!buffer) {
+  // ── Source attempts ──
+  // Real photographs via Pexels → Unsplash (need free API keys; commercial-use,
+  // no attribution). Genuine photos = correct anatomy, fully photorealistic.
+  const tryStock = async () => {
+    for (const [name, fetchFn] of [['pexels', fetchPexelsPhoto], ['unsplash', fetchUnsplashPhoto]]) {
+      try {
+        const rawPhoto = await fetchFn(stockQuery);
+        if (rawPhoto && rawPhoto.length > 10000) {
+          buffer = await sharp(rawPhoto)
+            .resize(spec.width, spec.height, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
+            .webp({ quality: 82 })
+            .toBuffer();
+          if (buffer.length > 100 * 1024) buffer = await sharp(buffer).webp({ quality: 60 }).toBuffer();
+          source = name;
+          return true;
+        }
+      } catch { /* try next stock provider */ }
+    }
+    return false;
+  };
+  // AI generation via Pollinations (free, no key) — the realism-prompted fallback.
+  const tryAi = async () => {
     try {
-      const rawPhoto = await fetchPexelsPhoto(searchQuery);
-      if (rawPhoto && rawPhoto.length > 10000) {
-        buffer = await sharp(rawPhoto)
-          .resize(1200, 630, { fit: 'cover', position: 'centre' })
-          .webp({ quality: 75 })
-          .toBuffer();
-        if (buffer.length > 100 * 1024) buffer = await sharp(buffer).webp({ quality: 55 }).toBuffer();
-        source = 'pexels';
-      }
+      const aiBuffer = await fetchPollinationsImage(imagePrompt || keyword, { width: spec.width, height: spec.height, bright: spec.bright });
+      if (aiBuffer) { buffer = aiBuffer; source = 'pollinations'; return true; }
     } catch { /* fallthrough */ }
+    return false;
+  };
+  // OpenAI (paid, top quality) — used first whenever a key is configured.
+  const tryOpenAI = async () => {
+    try {
+      const raw = await fetchOpenAIImage(imagePrompt || keyword, { width: spec.width, height: spec.height, bright: spec.bright });
+      if (raw) {
+        buffer = await sharp(raw)
+          .resize(spec.width, spec.height, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
+          .webp({ quality: 92 })
+          .toBuffer();
+        source = 'openai';
+        return true;
+      }
+    } catch { /* fall through to free sources */ }
+    return false;
+  };
+
+  // Order: OpenAI (if key present) → then per-blog free sources. ViitorCloud prefers
+  // real stock photos before the free AI; other blogs keep free-AI-first.
+  const hasOpenAI = !!(process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY);
+  const order = [
+    ...(hasOpenAI ? [tryOpenAI] : []),
+    ...(spec.preferStock ? [tryStock, tryAi] : [tryAi, tryStock]),
+  ];
+  for (const attempt of order) {
+    if (!buffer) await attempt();
   }
 
-  // ── Priority 3: Unsplash ──
-  if (!buffer) {
-    try {
-      const rawPhoto = await fetchUnsplashPhoto(searchQuery);
-      if (rawPhoto && rawPhoto.length > 10000) {
-        buffer = await sharp(rawPhoto)
-          .resize(1200, 630, { fit: 'cover', position: 'centre' })
-          .webp({ quality: 75 })
-          .toBuffer();
-        if (buffer.length > 100 * 1024) buffer = await sharp(buffer).webp({ quality: 55 }).toBuffer();
-        source = 'unsplash';
-      }
-    } catch { /* fallthrough */ }
-  }
-
-  // ── Priority 4: SVG gradient (always works) ──
+  // ── Final fallback: SVG gradient (always works, no network/keys) ──
   if (!buffer) {
     const brandName  = blog.name ? blog.name.replace(/\s+blog$/i, '').trim() : '';
     const brandDomain = blog.domain || '';
-    buffer = await generateFeaturedImage(title, keyword, theme, brandName, brandDomain);
+    buffer = await generateFeaturedImage(title, keyword, theme, brandName, brandDomain, spec.width, spec.height);
     source = 'gradient';
   }
 
   // ── Logo composite: applied to ALL sources ──
-  buffer = await compositeLogoOnImage(buffer, logoPath);
+  // Bright/premium blogs (VC) keep higher webp quality + a larger size ceiling so the
+  // clean OpenAI/photo detail survives; others keep the lean <100KB target.
+  const finalQuality  = spec.bright ? 88 : 75;
+  const finalMaxBytes = spec.bright ? 240 * 1024 : 100 * 1024;
+  buffer = await compositeLogoOnImage(buffer, logoPath, { backing: spec.logoBacking, quality: finalQuality, maxBytes: finalMaxBytes });
 
   const tmpPath = path.join(os.tmpdir(), `ct-image-${Date.now()}.webp`);
   fs.writeFileSync(tmpPath, buffer);
-  return { path: tmpPath, buffer, size: buffer.length, source };
+  return {
+    path: tmpPath, buffer, size: buffer.length, source,
+    ...(source === 'openai' ? { openaiModel: fetchOpenAIImage._lastModel, openaiUsage: fetchOpenAIImage._lastUsage } : {}),
+  };
 }
 
 module.exports = { generateFeaturedImage, saveTempImage };
