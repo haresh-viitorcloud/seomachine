@@ -53,6 +53,13 @@ function downloadImage(url, timeoutMs = 10000) {
  * Resolve the logo file for a blog from its context_path.
  * Checks for logo.svg, logo.png, logo.webp, logo.jpg in order.
  * Returns the absolute path, or null if not found.
+ *
+ * Convention for adding a new blog brand:
+ *   1. Create blogs/<slug>/context/logo.svg  (SVG preferred — scales without quality loss)
+ *   2. Set BLOG_<SLUG>_CONTEXT_PATH=../blogs/<slug>/context in app/.env
+ *
+ * The logo is composited top-left on every generated featured image (see compositeLogoOnImage).
+ * If no logo file is found the image is published without a logo — no error is thrown.
  */
 function resolveLogoPath(blog) {
   if (!blog || !blog.context_path) return null;

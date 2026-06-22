@@ -10,6 +10,12 @@ const FormData = require('form-data');
 const imageService = require('./imageService');
 const ctaService = require('./ctaService');
 
+// Resolved once at module load — avoids repeated fs.existsSync on every browser launch
+const SYSTEM_CHROME = '/usr/bin/google-chrome';
+const CHROME_EXECUTABLE = process.platform === 'linux' && fs.existsSync(SYSTEM_CHROME)
+  ? SYSTEM_CHROME
+  : undefined;
+
 /**
  * Posts a blog draft to WordPress using the configured method.
  *
@@ -177,9 +183,7 @@ async function postViaBrowser(config, content, rowData, onProgress) {
     headless: true,
     // Use system-installed Chrome when Playwright's own Chromium cache is absent.
     // Falls back to Playwright's bundled binary if the system path doesn't exist.
-    ...(process.platform === 'linux' && require('fs').existsSync('/usr/bin/google-chrome')
-      ? { executablePath: '/usr/bin/google-chrome' }
-      : {}),
+    ...(CHROME_EXECUTABLE ? { executablePath: CHROME_EXECUTABLE } : {}),
     // --no-sandbox is required on Linux when running as root/in containers
     args: process.platform === 'linux' ? ['--no-sandbox', '--disable-setuid-sandbox'] : [],
   });
