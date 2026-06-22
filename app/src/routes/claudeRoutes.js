@@ -213,4 +213,37 @@ router.get('/api/claude/models', requireAuth, async (req, res) => {
   res.json({ models: KNOWN_MODELS, source: 'builtin' });
 });
 
+// Image service connectivity check — tests Pollinations.ai + checks API keys
+router.get('/api/image/status', requireAuth, async (req, res) => {
+  const https = require('https');
+
+  // Quick HEAD check against Pollinations.ai (no image generated, just connectivity)
+  const pollinationsStatus = await new Promise((resolve) => {
+    const start = Date.now();
+    const req2 = https.request(
+      { hostname: 'image.pollinations.ai', path: '/', method: 'HEAD', timeout: 8000 },
+      (r) => resolve({ connected: r.statusCode < 500, latency_ms: Date.now() - start })
+    );
+    req2.on('timeout', () => { req2.destroy(); resolve({ connected: false, reason: 'timeout' }); });
+    req2.on('error',   () => resolve({ connected: false, reason: 'unreachable' }));
+    req2.end();
+  });
+
+  const pexelsKey    = process.env.PEXELS_API_KEY    || '';
+  const unsplashKey  = process.env.UNSPLASH_ACCESS_KEY || '';
+
+  // Active source = first in priority chain that is available
+  let activeSource = 'gradient';
+  if (pollinationsStatus.connected)   activeSource = 'pollinations';
+  else if (pexelsKey.length > 0)      activeSource = 'pexels';
+  else if (unsplashKey.length > 0)    activeSource = 'unsplash';
+
+  res.json({
+    pollinations: pollinationsStatus,
+    pexels:   { connected: pexelsKey.length > 0,   reason: pexelsKey   ? null : 'no API key' },
+    unsplash: { connected: unsplashKey.length > 0, reason: unsplashKey ? null : 'no API key' },
+    active_source: activeSource,
+  });
+});
+
 module.exports = router;

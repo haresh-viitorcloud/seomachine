@@ -128,3 +128,6 @@ app/.playwright/
 app/playwright-browsers/
 # Client content calendars / working spreadsheets (may contain client data)
 *.xlsx
+
+# Generated image/asset outputs — served via WordPress or cloud storage, not versioned
+generated-assets/

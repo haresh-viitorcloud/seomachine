@@ -13,6 +13,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crossSpawn = require('cross-spawn');
+const axios = require('axios');
+const { resolveRoot, loadMethodology } = require('./seomachineService');
+
+// Cached once at module load — resolveRoot() is pure path arithmetic but
+// called on every generateBlogContent / generateViaSeomachine invocation.
+const seomachineRoot = resolveRoot();
 
 // Lazy-load queueService to avoid circular deps — only needed at call time
 function getActiveModel() {
@@ -243,9 +249,16 @@ Produce exactly 3 distinct CTAs that drive business and generate qualified leads
 - The 3 CTAs must be unique (different angle/offer), not repetitive.
 - Also classify the article into ONE cta_category from this exact list (pick the closest fit): "ai", "cloud", "digital_transformation", "data", "technology_consulting", "digital_experience", or "default" if none clearly fits.
 
+## FEATURED IMAGE
+Write a short image_prompt (1-2 sentences) describing a photorealistic dark-tech illustration for this article.
+- Style: dark cinematic 3D digital illustration, deep navy background, dramatic teal and blue accent lighting, glowing holographic elements, photorealistic render quality
+- Subject: 2-4 specific visual elements that represent THIS article topic (e.g. server racks, shields, circuit patterns, cloud nodes)
+- Keep the upper-left corner visually calm with no bright highlights or faces (reserved for logo overlay)
+- Absolutely no text, words, labels, or captions anywhere in the image
+
 ## CRITICAL OUTPUT FORMAT
 You MUST respond with ONLY a single valid JSON object. No markdown fences, no commentary, no text before or after. The exact format:
-{"title":"<H1 / post title, includes primary keyword>","seo_title":"<50-60 char SEO title, starts with primary keyword, has a number + a power word>","slug":"<keyword-rich-url-slug>","meta_description":"<150-160 chars, primary keyword in first 120 chars>","content":"<full HTML>","image_prompt":"...","image_alt":"<short alt text that includes the primary keyword>","tags":["..."],"faq":[{"question":"...","answer":"..."}],"cta_category":"<ai|cloud|digital_transformation|data|technology_consulting|digital_experience|default>","ctas":[{"heading":"...","description":"...","button":"..."},{"heading":"...","description":"...","button":"..."},{"heading":"...","description":"...","button":"..."}]}`;
+{"title":"<H1 / post title, includes primary keyword>","seo_title":"<50-60 char SEO title, starts with primary keyword, has a number + a power word>","slug":"<keyword-rich-url-slug>","meta_description":"<150-160 chars, primary keyword in first 120 chars>","content":"<full HTML>","image_prompt":"<descriptive image prompt for this article following the Featured Image guidelines above>","image_alt":"<short alt text that includes the primary keyword>","tags":["..."],"faq":[{"question":"...","answer":"..."}],"cta_category":"<ai|cloud|digital_transformation|data|technology_consulting|digital_experience|default>","ctas":[{"heading":"...","description":"...","button":"..."},{"heading":"...","description":"...","button":"..."},{"heading":"...","description":"...","button":"..."}]}`;
 }
 
 function buildOutlinePrompt(row) {
@@ -740,6 +753,9 @@ async function generateBlogContent(row, contextPath, rulesPath, onProgress, test
   const mode = await getGenerationMode();
   if (onProgress) onProgress(`Using ${mode === 'cli' ? 'Claude CLI (your session)' : 'Claude API key'}...`);
 
+  // Run CLI with cwd = seomachine repo root so context files in ../blogs/ are
+  // within Claude Code's allowed working directory (same as seomachine engine).
+
   let totalCost = 0;
   let tokensIn = 0;
   let tokensOut = 0;
@@ -753,7 +769,7 @@ async function generateBlogContent(row, contextPath, rulesPath, onProgress, test
   try {
     let outlineRaw;
     if (mode === 'cli') {
-      outlineRaw = extractCliResult(await generateViaCli(systemContent, outlinePrompt, null));
+      outlineRaw = extractCliResult(await generateViaCli(systemContent, outlinePrompt, null, seomachineRoot));
       totalCost += extractCliResult._lastCostUsd || 0;
       tokensIn += extractCliResult._lastTokensIn || 0;
       tokensOut += extractCliResult._lastTokensOut || 0;
@@ -776,7 +792,7 @@ async function generateBlogContent(row, contextPath, rulesPath, onProgress, test
 
   let rawText;
   if (mode === 'cli') {
-    const cliOutput = await generateViaCli(systemContent, userPrompt, onProgress);
+    const cliOutput = await generateViaCli(systemContent, userPrompt, onProgress, seomachineRoot);
     rawText = extractCliResult(cliOutput);
     totalCost += extractCliResult._lastCostUsd || 0;
     tokensIn += extractCliResult._lastTokensIn || 0;
@@ -805,14 +821,11 @@ async function generateBlogContent(row, contextPath, rulesPath, onProgress, test
  *     tags[], faq[], cta_category, ctas[], _costUsd, _tokensIn, _tokensOut }
  */
 async function generateViaSeomachine(row, contextPath, rulesPath, onProgress, feedbackList = [], additionalInstructions = '', blog = {}) {
-  const seomachine = require('./seomachineService');
-  const root = seomachine.resolveRoot();
-
-  const methodology = seomachine.loadMethodology(root);   // LIVE upstream write.md
+  const methodology = loadMethodology(seomachineRoot);   // LIVE upstream write.md
   if (onProgress) {
     onProgress(methodology
-      ? `Engine: seomachine — using live methodology from ${root}`
-      : `Engine: seomachine — write.md not found at ${root} (proceeding with brand context only)`);
+      ? `Engine: seomachine — using live methodology from ${seomachineRoot}`
+      : `Engine: seomachine — write.md not found at ${seomachineRoot} (proceeding with brand context only)`);
   }
 
   const brand = brandFromBlog(blog);
@@ -1089,7 +1102,6 @@ async function getClaudeUsage() {
     return { ..._usageCache.data, cached: true };
   }
 
-  const axios = require('axios');
   const base = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
   const headers = {
     Authorization: `Bearer ${oauth.accessToken}`,

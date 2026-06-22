@@ -87,6 +87,14 @@
             <div class="text-small text-muted" id="cliSub"></div>
           </div>
         </div>
+        <div class="status-card" id="cardImage">
+          <div class="icon">🖼️</div>
+          <div>
+            <div class="label">Image Generation</div>
+            <div class="value" id="imageValue">Checking...</div>
+            <div class="text-small text-muted" id="imageSub"></div>
+          </div>
+        </div>
       </div>
 
       <div id="activeModeBox" style="margin-bottom:16px"></div>
@@ -449,9 +457,27 @@ function highlightEngineBtn(engine) {
 
 async function refreshStatus() {
   document.getElementById('refreshBtn').disabled = true;
-  const data = await API.get('/api/claude/status');
+  const [data, imgData] = await Promise.all([
+    API.get('/api/claude/status'),
+    API.get('/api/image/status'),
+  ]);
   document.getElementById('refreshBtn').disabled = false;
   if (!data) return;
+
+  // Image card
+  if (imgData) {
+    const cardImage = document.getElementById('cardImage');
+    const sourceLabels = { pollinations: 'Pollinations.ai (Flux)', pexels: 'Pexels', unsplash: 'Unsplash', gradient: 'SVG Gradient' };
+    if (imgData.pollinations?.connected) {
+      cardImage.className = 'status-card mode-active';
+      document.getElementById('imageValue').innerHTML = '<span class="text-success">✓ Connected</span>';
+      document.getElementById('imageSub').textContent = `Pollinations.ai · ${imgData.pollinations.latency_ms}ms`;
+    } else {
+      cardImage.className = 'status-card mode-inactive';
+      document.getElementById('imageValue').innerHTML = '<span class="text-danger">✗ Offline — using fallback</span>';
+      document.getElementById('imageSub').textContent = `Active: ${sourceLabels[imgData.active_source] || imgData.active_source}`;
+    }
+  }
 
   // CLI card
   const cli = data.cli;
