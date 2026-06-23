@@ -113,11 +113,14 @@ async function postViaRestApi(config, content, rowData, onProgress) {
     if (onProgress) onProgress(`Featured image skipped: ${imgErr.message}`);
   }
 
-  // Set the featured image alt text (Rank Math: "focus keyword in image alt")
-  if (featuredMediaId && (content.image_alt || rowData.primary_keyword)) {
+  // Set the featured image alt text and title on the media attachment
+  if (featuredMediaId) {
     try {
       await axios.post(`${apiBase}/media/${featuredMediaId}`,
-        { alt_text: content.image_alt || rowData.primary_keyword },
+        {
+          alt_text: content.image_alt || rowData.primary_keyword || content.title,
+          title: content.title,
+        },
         { headers, timeout: 15000 });
     } catch { /* non-fatal */ }
   }
@@ -580,7 +583,7 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
   try {
     const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config);
     imageBase64 = img.buffer.toString('base64');
-    imageFilename = img.path.split('/').pop();
+    imageFilename = `${slugify(content.title)}.webp`;
     imageSource = img.source || '';
     fs.unlink(img.path, () => {});
     if (onProgress) onProgress(`Featured image ready: ${imageSource} (${Math.round(img.size / 1024)}KB)`);
@@ -937,9 +940,12 @@ async function setRankMathSeo(page, focusKeyword, metaDescription, onProgress) {
 async function setFeaturedImage(page, content, rowData, onProgress) {
   let tmpPath = null;
   try {
-    // Generate the image
+    // Generate the image — save with blog-title filename so WP media library shows a clean name
     const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, {});
-    tmpPath = img.path;
+    const namedPath = path.join(require('os').tmpdir(), `${slugify(content.title)}.webp`);
+    fs.copyFileSync(img.path, namedPath);
+    fs.unlink(img.path, () => {});
+    tmpPath = namedPath;
     if (onProgress) onProgress(`Featured image ready: ${img.source} (${Math.round(img.size / 1024)}KB)`);
 
     // Find the Featured Image panel — try multiple approaches
@@ -981,6 +987,20 @@ async function setFeaturedImage(page, content, rowData, onProgress) {
     if (await fileInput.count()) {
       await fileInput.setInputFiles(tmpPath);
       await page.waitForTimeout(3000); // Wait for upload to complete
+
+      // Fill alt text and title fields in the media uploader before confirming
+      const imageAlt = content.image_alt || rowData.primary_keyword || content.title;
+      const imageTitle = content.title;
+      try {
+        const altField = page.locator('.setting[data-setting="alt"] input, input[id*="alt-text"], input[placeholder*="alt"]').first();
+        if (await altField.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await altField.fill(imageAlt);
+        }
+        const titleField = page.locator('.setting[data-setting="title"] input, input[id*="attachment-details-title"]').first();
+        if (await titleField.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await titleField.fill(imageTitle);
+        }
+      } catch { /* non-fatal */ }
 
       // Click "Set featured image" confirmation button in media dialog
       const confirmBtn = page.locator('button:has-text("Set featured image")').last();
