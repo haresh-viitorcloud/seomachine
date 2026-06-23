@@ -102,6 +102,7 @@ async function processJob(job) {
         tokens_out: tokensOut,
         // seomachine engine attaches a content-quality score (0-100); native engine leaves it undefined
         ...(typeof generatedContent._seoMachineScore === 'number' ? { seomachine_score: generatedContent._seoMachineScore } : {}),
+        limit_resume_count: 0, // generation succeeded — reset the usage-limit resume counter
         generated_at: true,
       });
 
@@ -113,28 +114,45 @@ async function processJob(job) {
       // A limit is not a job failure — don't burn a retry. Reschedule the job to the
       // reset time as 'pending'; the cron worker picks it up automatically once due.
       const limit = await claudeService.detectUsageLimit(err);
-      if (limit.limited) {
+      // Cap consecutive limit-reschedules: a mis-detected "limit" (e.g. an unrelated
+      // failure while a usage window happens to read ≥99%) would otherwise reschedule
+      // forever without ever burning a retry. After LIMIT_RESUME_MAX, fall through to
+      // the normal retry/error path below so the job can't loop indefinitely.
+      const LIMIT_RESUME_MAX = 8;
+      if (limit.limited && (job.limit_resume_count || 0) < LIMIT_RESUME_MAX) {
+        const limitCount = (job.limit_resume_count || 0) + 1;
         const fallbackMin = parseInt(process.env.LIMIT_RESUME_FALLBACK_MIN) || 30;
         const resumeMs = limit.resetAt || (Date.now() + fallbackMin * 60000);
         const whenSql = dayjs(resumeMs).format('YYYY-MM-DD HH:mm:ss');
         queueService.updateJobStatus(job.id, 'pending', {
           scheduled_at: whenSql,
           error_message: `Claude usage limit reached — auto-resuming at ${whenSql}`,
+          limit_resume_count: limitCount,
         });
         queueService.addLog(job.id, 'warning',
-          `Claude usage limit reached. Job paused; it will auto-resume at ${whenSql} when the limit renews.`);
+          `Claude usage limit reached. Job paused; it will auto-resume at ${whenSql} when the limit renews. (resume ${limitCount}/${LIMIT_RESUME_MAX})`);
         return;
+      }
+      if (limit.limited) {
+        queueService.addLog(job.id, 'warning',
+          `Usage-limit auto-resume gave up after ${LIMIT_RESUME_MAX} attempts — treating as a normal failure.`);
       }
 
       const retryMax = parseInt(process.env.QUEUE_RETRY_ATTEMPTS) || 3;
       const retryCount = (job.retry_count || 0) + 1;
 
       if (retryCount <= retryMax) {
+        // Exponential backoff so a flapping Claude/WP isn't hammered: 30s, 60s, 120s, …
+        // The cron worker (and drain loop) only pick up jobs whose scheduled_at is due.
+        const baseDelayMs = parseInt(process.env.QUEUE_RETRY_DELAY_MS) || 30000;
+        const delayMs = baseDelayMs * Math.pow(2, retryCount - 1);
+        const whenSql = dayjs(Date.now() + delayMs).format('YYYY-MM-DD HH:mm:ss');
         queueService.updateJobStatus(job.id, 'pending', {
+          scheduled_at: whenSql,
           error_message: `Generation failed (attempt ${retryCount}): ${err.message}`,
           retry_count: retryCount,
         });
-        queueService.addLog(job.id, 'warning', `Content generation failed (attempt ${retryCount}/${retryMax}): ${err.message}`);
+        queueService.addLog(job.id, 'warning', `Content generation failed (attempt ${retryCount}/${retryMax}): ${err.message}. Retrying after ${Math.round(delayMs / 1000)}s.`);
       } else {
         queueService.updateJobStatus(job.id, 'error', {
           error_message: `Generation failed after ${retryMax} attempts: ${err.message}`,
@@ -250,9 +268,11 @@ async function runWorker() {
     // process-next / process-now). Cron-triggered runs stop after each job so that
     // Manual-mode jobs are never auto-started by the scheduler.
     if (_drainMode) {
-      const next = queueService.getNextPendingJob();
+      // Only chain to jobs that are actually due — a retry/limit job rescheduled with a
+      // future scheduled_at is left for the cron worker to pick up once its backoff elapses.
+      const next = queueService.getDueJobs()[0];
       if (next) setImmediate(runWorker);
-      else _drainMode = false; // queue drained — reset flag
+      else _drainMode = false; // nothing due — reset flag (cron resumes future jobs)
     }
   }
 }
@@ -315,9 +335,10 @@ async function processJobById(jobId) {
       })
       .finally(() => {
         _processing = false;
-        // Continue draining even if this job errored — same logic as runWorker's finally
+        // Continue draining even if this job errored — same logic as runWorker's finally.
+        // Only chain to due jobs so backoff-rescheduled retries wait for the cron worker.
         if (_drainMode) {
-          const next = queueService.getNextPendingJob();
+          const next = queueService.getDueJobs()[0];
           if (next) setImmediate(runWorker);
           else _drainMode = false;
         }

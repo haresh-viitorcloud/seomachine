@@ -514,6 +514,17 @@ body{display:flex}
   .istep-arrow{transform:rotate(90deg);justify-content:center}
   .intro-h{font-size:21px}
 }
+/* Fallback for browsers without `zoom` (older Firefox): scale the stage with transform */
+@supports not (zoom: 1){
+  @media (max-width:980px){ .theater{transform:scale(.82);transform-origin:top center} }
+  @media (max-width:680px){ .theater{transform:scale(.6);transform-origin:top center} }
+}
+/* In-demo exit — the sidebar is hidden below 980px, so give viewers a way back */
+.demo-exit{position:fixed;top:8px;left:10px;z-index:150;display:none;align-items:center;gap:5px;
+  padding:6px 12px;font-size:12px;font-weight:600;border-radius:8px;text-decoration:none;
+  background:rgba(13,17,23,.9);border:1px solid var(--bord);color:var(--txt);backdrop-filter:blur(8px)}
+.demo-exit:hover{border-color:var(--pri);color:var(--pri)}
+@media (max-width:980px){ .demo-exit{display:inline-flex} }
 </style>
 </head>
 <body>
@@ -556,6 +567,7 @@ body{display:flex}
 </aside>
 
 <div class="main">
+  <a class="demo-exit" href="/dashboard">✕ Exit demo</a>
   <div class="hdr">
     <div class="hdr-left">
       <span class="hdr-title" id="hdrTitle">Scene 1 — The Brief</span>

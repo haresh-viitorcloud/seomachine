@@ -381,7 +381,7 @@
         <span class="text-muted text-small" style="font-weight:400">(optional — for this post only)</span>
       </label>
       <textarea id="editInstructions" class="form-control" rows="3"
-        placeholder="e.g. Make this article more technical. Focus on the HIPAA compliance angle. Include a comparison table. Mention our LogixHealth $192M case study."
+        placeholder="e.g. Make this article more technical. Focus on a specific compliance angle. Include a comparison table. Mention a relevant customer case study."
         style="resize:vertical;font-size:13px;line-height:1.6"></textarea>
       <div class="form-hint">Added to Claude's prompt as highest-priority rules for this post only.</div>
     </div>
@@ -986,7 +986,7 @@ socket.on('batch:complete', (batch) => {
   showToast(msg, batch.errors ? 'warning' : 'success');
   // Browser notification if tab is not active
   if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-    new Notification('CT Automation — Batch Complete', { body: msg, icon: '/assets/img/icon.png' });
+    new Notification('CT Automation — Batch Complete', { body: msg });
   }
   loadJobs();
 });

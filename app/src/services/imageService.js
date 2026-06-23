@@ -221,7 +221,7 @@ async function fetchHuggingFaceImage(imagePrompt, keyword) {
  *
  * Endpoint: https://image.pollinations.ai/prompt/{encoded_prompt}?width=W&height=H&nologo=true&model=flux
  *
- * Returns a 1200×630 WebP Buffer under 100KB, or null on failure.
+ * Returns a 1200×630 WebP Buffer (q85; typically ~100–150KB, not size-capped), or null on failure.
  */
 async function fetchPollinationsImage(imagePrompt, keyword) {
   try {

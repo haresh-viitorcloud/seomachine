@@ -36,7 +36,7 @@ No test suite or linter is configured. Server listens on `APP_PORT` (default 400
 - `src/services/queueService.js` — all DB mutations for jobs/logs/queue state, socket emits, feedback
 - `src/services/claudeService.js` — 2-call outline+article pipeline, prompt construction, CLI/SDK generation
 - `src/services/wordpressService.js` — REST API posting + Playwright browser fallback, `htmlToGutenbergBlocks()`
-- `src/services/imageService.js` — WebP featured images (1200×630, kept under 100KB) via Pexels API → Unsplash API → SVG gradient fallback; the source actually used is recorded in `jobs.image_source`
+- `src/services/imageService.js` — WebP featured images (1200×630; AI paths ~100–150KB at q85, the Pexels/Unsplash/SVG paths re-encode under 100KB) via Hugging Face → Pollinations → Pexels API → Unsplash API → SVG gradient fallback; the source actually used is recorded in `jobs.image_source`
 - `src/services/seoScoreService.js` — heuristic Rank Math-style SEO score (0–100) computed from a job's persisted fields; surfaced by `dashboardRoutes`
 
 ## Request Flow
