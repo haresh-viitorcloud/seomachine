@@ -113,20 +113,22 @@ function wrapText(text, maxChars) {
  */
 async function fetchPollinationsImage(imagePrompt) {
   try {
-    const topic = (imagePrompt || 'professional technology concept').substring(0, 800);
+    // Take only the first clause and strip special chars to keep the encoded URL
+    // well under CloudFront's ~400-char limit (style descriptors add ~120 chars encoded).
+    const topic = (imagePrompt || 'professional technology concept')
+      .replace(/[^\w\s,]/g, '')
+      .split(',')[0]
+      .trim()
+      .substring(0, 60);
 
-    // Build a style-augmented prompt: preserve the subject from Claude's image_prompt
-    // and append dark-tech style directives that match the desired sample aesthetic.
+    // Bright white 3D realistic style — soft studio lighting, no dark backgrounds.
     const fullPrompt = [
       topic,
-      'dark cinematic 3D digital illustration',
-      'deep navy blue background',
-      'dramatic teal electric blue accent lighting',
-      'glowing holographic elements',
-      'photorealistic render quality',
-      'cinematic depth of field',
-      'upper left corner visually calm',
-      'no text no words no letters no labels',
+      'photorealistic 3D render',
+      'bright white background',
+      'soft studio lighting',
+      'modern tech objects',
+      'no text no labels',
     ].join(', ');
 
     const encoded = encodeURIComponent(fullPrompt);
@@ -142,14 +144,12 @@ async function fetchPollinationsImage(imagePrompt) {
     }
 
     const sharp = require('sharp');
-    let buffer = await sharp(rawBuffer)
-      .resize(1200, 630, { fit: 'cover', position: 'centre' })
-      .webp({ quality: 80 })
+    // Pollinations already returns 1200×630 — resize is a safety net only.
+    // Single encode at high quality; compositeLogoOnImage handles the final output.
+    const buffer = await sharp(rawBuffer)
+      .resize(1200, 630, { fit: 'cover', position: 'centre', withoutEnlargement: true, kernel: 'lanczos3' })
+      .webp({ quality: 85 })
       .toBuffer();
-
-    if (buffer.length > 100 * 1024) {
-      buffer = await sharp(buffer).webp({ quality: 60 }).toBuffer();
-    }
 
     console.log(`[ImageService] Pollinations image: ${buffer.length} bytes`);
     return buffer;
@@ -400,11 +400,12 @@ async function compositeLogoOnImage(imageBuffer, logoPath) {
         { input: backingBuffer, top: PADDING - INNER_PAD, left: PADDING - INNER_PAD, blend: 'over' },
         { input: logoBuffer,    top: PADDING,             left: PADDING,             blend: 'over' },
       ])
-      .webp({ quality: 75 })
+      .webp({ quality: 85 })
       .toBuffer();
 
-    return result.length > 100 * 1024
-      ? sharp(result).webp({ quality: 55 }).toBuffer()
+    // 200KB ceiling — generous enough for a sharp 1200×630 image without degrading quality.
+    return result.length > 200 * 1024
+      ? sharp(result).webp({ quality: 75 }).toBuffer()
       : result;
 
   } catch (err) {
