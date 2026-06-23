@@ -14,7 +14,8 @@ const os = require('os');
 const path = require('path');
 const crossSpawn = require('cross-spawn');
 const axios = require('axios');
-const { resolveRoot, loadMethodology } = require('./seomachineService');
+const seomachine = require('./seomachineService');
+const { resolveRoot, loadMethodology } = seomachine;
 
 // Cached once at module load — resolveRoot() is pure path arithmetic but
 // called on every generateBlogContent / generateViaSeomachine invocation.
@@ -834,7 +835,7 @@ async function generateViaSeomachine(row, contextPath, rulesPath, onProgress, fe
   // folder (or it's empty), fall back to seomachine's default root context/.
   let contextContent = loadContextFiles(contextPath);
   if (!contextContent || !contextContent.trim()) {
-    const defaultContextDir = path.join(root, 'context');
+    const defaultContextDir = path.join(seomachineRoot, 'context');
     contextContent = loadContextFiles(defaultContextDir);
     if (onProgress) onProgress(contextContent
       ? `No per-domain context for ${brand} — falling back to seomachine default context/`
@@ -857,7 +858,7 @@ async function generateViaSeomachine(row, contextPath, rulesPath, onProgress, fe
   if (mode === 'cli') {
     // Run with cwd = seomachine root so Claude Code's ambient project context aligns
     // with seomachine (its CLAUDE.md/.claude), reinforcing the injected methodology.
-    const cliOutput = await generateViaCli(systemContent, userPrompt, onProgress, root);
+    const cliOutput = await generateViaCli(systemContent, userPrompt, onProgress, seomachineRoot);
     rawText = extractCliResult(cliOutput);
     totalCost += extractCliResult._lastCostUsd || 0;
     tokensIn += extractCliResult._lastTokensIn || 0;
@@ -872,7 +873,7 @@ async function generateViaSeomachine(row, contextPath, rulesPath, onProgress, fe
 
   // Quality gate — scrub AI watermarks + score (best-effort; never fails generation)
   try {
-    const gate = await seomachine.runQualityGate(result.content, { root, onProgress });
+    const gate = await seomachine.runQualityGate(result.content, { root: seomachineRoot, onProgress });
     if (gate.ok) {
       if (gate.cleaned && gate.cleaned !== result.content) {
         result.content = gate.cleaned;
