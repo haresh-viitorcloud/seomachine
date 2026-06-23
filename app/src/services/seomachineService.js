@@ -125,6 +125,13 @@ ${brief}
 ${addl}
 Apply the full seomachine pipeline in this single response: methodology writing (direct answer + hook, Key Takeaways/TL;DR block, 4–7 H2 sections, mini-stories, contextual CTAs distributed through the body, internal + external links, FAQ, conclusion), THEN apply on-page SEO optimization, high-CTR meta creation, strategic internal linking, and keyword mapping/distribution.
 
+FEATURED IMAGE
+Write an image_prompt (max 60 words) that describes 2-3 specific visual elements representing THIS article's topic for AI image generation.
+- Style: photorealistic 3D render, bright white studio background, soft studio lighting, modern tech objects
+- Subject: name 2-3 concrete objects/elements (e.g. "glowing shield with circuit patterns, floating cloud nodes, padlock")
+- No text, labels, or captions anywhere in the image
+- Keep upper-left corner visually calm (reserved for logo overlay)
+
 CRITICAL OUTPUT FORMAT — respond with ONLY a single valid JSON object. No prose, no markdown code fences. Use EXACTLY these keys:
 {
   "title": "H1 post title",
@@ -132,7 +139,7 @@ CRITICAL OUTPUT FORMAT — respond with ONLY a single valid JSON object. No pros
   "slug": "keyword-rich-hyphenated-url-slug",
   "meta_description": "150-160 chars, primary keyword within the first 120 chars",
   "content": "FULL article body as clean semantic HTML using <h2>,<h3>,<p>,<ul>,<ol>,<li>,<strong>,<em>,<a href> ONLY. NO markdown. NO <html>/<head>/<body> wrappers. Do NOT include the H1 (it is the title).",
-  "image_prompt": "a concise stock-photo search query for the featured image",
+  "image_prompt": "<2-3 specific visual elements for this article, following the FEATURED IMAGE guidelines above>",
   "image_alt": "descriptive alt text that includes the primary keyword",
   "tags": ["tag1","tag2","tag3"],
   "faq": [{"question":"...","answer":"..."}],
