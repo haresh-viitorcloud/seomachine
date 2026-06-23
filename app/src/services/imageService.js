@@ -91,9 +91,14 @@ function imageSpecForBlog(blog = {}) {
   const isVc = slug === 'vc'
     || /\/blogs\/vc(\/|$)/.test(ctx)
     || name.includes('viitorcloud');
+  // Brands whose logo integrates naturally (no dark backing pill — a soft drop
+  // shadow keeps it legible on the bright hero images). VC + EveryCRED + EveryTicket.
+  const naturalLogo = isVc
+    || slug === 'everycred'   || /\/blogs\/everycred(\/|$)/.test(ctx)   || name.includes('everycred')
+    || slug === 'everyticket' || /\/blogs\/everyticket(\/|$)/.test(ctx) || name.includes('everyticket');
   return isVc
-    ? { width: 1520, height: 1008, logoBacking: false, bright: true,  preferStock: false }
-    : { width: 1200, height: 630,  logoBacking: true,  bright: false, preferStock: false };
+    ? { width: 1520, height: 1008, logoBacking: false,        bright: true,  preferStock: false }
+    : { width: 1200, height: 630,  logoBacking: !naturalLogo, bright: false, preferStock: false };
 }
 
 function escXml(s) {
@@ -299,6 +304,155 @@ async function fetchUnsplashPhoto(keyword) {
 // Source 0 — OpenAI Images (gpt-image-1, with dall-e-3 fallback) — PAID, top quality
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Hero-image prompt template (ALL blogs). The model reads the FULL blog content
+// (injected at {{BLOG_CONTENT}}) to infer topic/industry/use-case, then renders a
+// premium, photorealistic, text-free hero. Size is per-blog via {{SIZE}}
+// (ViitorCloud 1520 x 1008; EveryCRED / EveryTicket / LaraCopilot 1200 x 630). The
+// brand is adapted automatically from the injected blog content + INDUSTRY ADAPTATION.
+const HERO_IMAGE_TEMPLATE = `Create a premium, futuristic, photorealistic editorial blog hero image based on the blog content below.
+
+IMAGE SIZE:
+{{SIZE}} px, horizontal landscape hero image.
+
+BLOG CONTENT:
+{{BLOG_CONTENT}}
+
+TASK:
+First understand the full blog content. Identify:
+- The main topic
+- The industry
+- The target audience
+- The core business problem
+- The AI / technology solution
+- The most visual real-world use case
+- The emotional message of the blog, such as confidence, speed, trust, productivity, customer service, automation, growth, or innovation
+
+Then create one powerful hero image that visually represents the blog's central idea.
+
+VISUAL DIRECTION:
+The image must feel futuristic, intelligent, premium, and business-focused, while still looking realistic and believable. It should look like a high-end B2B technology blog header, not a generic stock photo.
+
+The scene should show the technology or AI solution being used in a real work environment related to the blog's industry. The image should immediately communicate that AI or advanced digital technology is improving the workflow, decision-making, service experience, or business outcome.
+
+INDUSTRY ADAPTATION:
+Adapt the environment, people, devices, and visual cues to the blog content.
+
+Examples:
+- Retail blog: a store associate helping a shopper with a futuristic tablet or handheld AI assistant in a modern retail store.
+- Healthcare blog: a doctor, nurse, or care team using an AI dashboard in a modern clinical setting.
+- Manufacturing blog: engineers using predictive analytics beside advanced machinery or production lines.
+- Finance blog: an advisor or analyst using a secure futuristic dashboard in a modern office.
+- Logistics blog: a warehouse or supply chain manager using AI visibility tools near inventory, scanners, robots, or delivery operations.
+- Education blog: a teacher, student, or administrator using AI learning tools in a modern classroom or campus environment.
+- Real estate blog: an agent or client reviewing AI-powered property insights in a sleek office or smart building.
+- SaaS / enterprise blog: professionals collaborating around AI dashboards, workflow automation, or data intelligence tools.
+
+PEOPLE:
+Include people when they help explain the use case. They should look natural, professional, diverse, and realistic. Their body language should show confidence, collaboration, service, or problem-solving. Avoid staged stock-photo poses.
+
+SCREEN / DEVICE RULE:
+If any screen, tablet, phone, laptop, kiosk, dashboard, transparent display, or holographic interface is shown, it must be clearly visible to the audience/viewer.
+
+The screen should face the camera or be shown at a readable 3/4 angle so the viewer can understand that the technology is being used. Do not show screens turned away, hidden, overly blurred, cut off, or unreadable due to perspective.
+
+The screen should be part of the story, not just a prop. It should visually connect to the people and the blog's topic.
+
+SCREEN CONTENT:
+Use only clean abstract UI elements:
+- Dashboard cards
+- Charts
+- Graph lines
+- Status dots
+- Product thumbnails
+- Map pins
+- Workflow nodes
+- Icons
+- Data panels
+- Search-style interface shapes
+- AI assistant-style visual elements
+
+Do not include any readable words, letters, numbers, labels, brand names, logos, captions, or fake UI text. The interface should look understandable visually, but without text.
+
+FUTURISTIC STYLE:
+Use a near-future visual style:
+- Sleek digital interfaces
+- Subtle glowing UI elements
+- Premium devices
+- Smart workspace details
+- Clean architecture
+- Advanced but believable technology
+- Soft ambient light
+- Elegant digital overlays when appropriate
+
+The futuristic elements should feel practical and professional, not fantasy or sci-fi. Avoid excessive neon, cyberpunk styling, unrealistic hologram clutter, or spaceship-like environments unless the blog specifically requires that.
+
+COMPOSITION:
+- Horizontal hero image composition.
+- Main subject slightly off-center.
+- Clear foreground action involving people, technology, or the main business workflow.
+- Relevant background environment, softly blurred but recognizable.
+- Strong depth of field.
+- Clean space in part of the image for possible website layout use.
+- Balanced lighting and premium editorial photography style.
+- The viewer should understand the industry and use case within seconds.
+
+MOOD:
+Confident, innovative, intelligent, helpful, modern, trustworthy, premium, and optimistic.
+
+QUALITY:
+Ultra-realistic, cinematic, high-resolution, sharp main subject, realistic skin texture, realistic hands, accurate anatomy, natural expressions, professional lighting, detailed environment, polished commercial photography look.
+
+STRICT NEGATIVE INSTRUCTIONS:
+Do not add any text anywhere.
+Do not add readable words, letters, numbers, captions, labels, signs, logos, brand names, watermarks, or UI text.
+Do not create infographic graphics.
+Do not create cartoon, illustration, anime, vector art, low-poly render, or flat design.
+Do not make the image look like a cheap stock photo.
+Do not show screens facing away from the viewer if screens are included.
+Do not show blurry, hidden, cut-off, or unreadable screens.
+Do not create distorted hands, extra fingers, duplicated faces, strange eyes, broken devices, messy UI, unrealistic technology, cluttered holograms, or irrelevant objects.
+
+FINAL OUTPUT:
+One futuristic, photorealistic blog hero image, {{SIZE}} px, with no text anywhere.`;
+
+/**
+ * Reduce blog HTML to clean plain text for use inside an image prompt: strip tags,
+ * decode common entities, collapse whitespace, and cap length (keeps gpt-image-1
+ * well within its prompt limit and avoids ballooning input cost).
+ */
+function stripForPrompt(html, maxChars = 7000) {
+  if (!html) return '';
+  return String(html)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxChars);
+}
+
+/**
+ * Build the OpenAI image prompts for a blog.
+ *   - richPrompt: ViitorCloud (bright) → the full hero template with the FULL blog
+ *     content injected; other blogs → same as condensedPrompt.
+ *   - condensedPrompt: short style+scene prompt (used by non-VC and as the dall-e-3
+ *     fallback, since dall-e-3 caps prompts at 4000 chars).
+ * Exported so the exact prompt can be inspected/logged without an API call.
+ */
+function buildImagePrompts(imagePrompt, { blogContent = '', title = '', width = 1200, height = 630 } = {}) {
+  const topic = (imagePrompt || 'professional business scene').substring(0, 900);
+  const size = `${width} x ${height}`;
+  // Condensed prompt — dall-e-3 fallback only (4000-char limit; the rich template
+  // plus full blog content won't fit there).
+  const styleText = `Based on the blog content and title, create an image of size ${size}. Do not add text into the image. Style: tech-themed with technology photography. Do not include any text in the image; maintain a clean and simple design.`;
+  const condensedPrompt = `${styleText}\n\nScene: ${topic}.\n\nStrict requirements: absolutely no text, no words, no letters, no numbers, no captions, no watermark, and no logos anywhere in the image.`;
+  // Rich hero template — used for ALL blogs, with the blog's own size + full content.
+  const blogBlock = `${title ? `Title: ${title}\n\n` : ''}${stripForPrompt(blogContent) || topic}`;
+  const richPrompt = HERO_IMAGE_TEMPLATE.replaceAll('{{SIZE}}', size).replace('{{BLOG_CONTENT}}', blogBlock);
+  return { richPrompt, condensedPrompt };
+}
+
 /**
  * Generate a featured image via the OpenAI Images API. Highest quality source
  * (matches the brand's clean/realistic reference samples). PAID — billed per image.
@@ -312,7 +466,7 @@ async function fetchUnsplashPhoto(keyword) {
  * Returns a raw PNG/image Buffer (caller resizes to the exact target), or null.
  */
 async function fetchOpenAIImage(imagePrompt, opts = {}) {
-  const { width = 1200, height = 630, bright = false } = opts;
+  const { width = 1200, height = 630, bright = false, blogContent = '', title = '' } = opts;
   fetchOpenAIImage._lastModel = null;
   fetchOpenAIImage._lastUsage = null;
   fetchOpenAIImage._lastError = null;
@@ -320,16 +474,12 @@ async function fetchOpenAIImage(imagePrompt, opts = {}) {
   const apiKey = process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY;
   if (!apiKey) return null;
 
-  const topic = (imagePrompt || 'professional business scene').substring(0, 900);
-  const styleText = bright
-    ? 'Based on the blog content and title, create an image of size 1520 x 1008. Do not add text into the image. Style: tech-themed with technology photography. Do not include any text in the image; maintain a clean and simple design.'
-    : 'Based on the blog content and title, create an image of size 1200 x 630. Do not add text into the image. Style: tech-themed with technology photography. Do not include any text in the image; maintain a clean and simple design.';
-  const prompt = `${styleText}\n\nScene: ${topic}.\n\nStrict requirements: absolutely no text, no words, no letters, no numbers, no captions, no watermark, and no logos anywhere in the image.`;
+  const { richPrompt, condensedPrompt } = buildImagePrompts(imagePrompt, { blogContent, title, width, height });
 
   const landscape = width >= height;
   const attempts = [
-    { model: 'gpt-image-1', payload: { size: landscape ? '1536x1024' : '1024x1536', quality: process.env.OPENAI_IMAGE_QUALITY || 'high' } },
-    { model: 'dall-e-3',    payload: { size: landscape ? '1792x1024' : '1024x1792', quality: 'hd', response_format: 'b64_json' } },
+    { model: 'gpt-image-1', prompt: richPrompt,                     payload: { size: landscape ? '1536x1024' : '1024x1536', quality: process.env.OPENAI_IMAGE_QUALITY || 'high' } },
+    { model: 'dall-e-3',    prompt: condensedPrompt.slice(0, 3990), payload: { size: landscape ? '1792x1024' : '1024x1792', quality: 'hd', response_format: 'b64_json' } },
   ];
 
   for (const att of attempts) {
@@ -337,7 +487,7 @@ async function fetchOpenAIImage(imagePrompt, opts = {}) {
       const res = await fetch('https://api.openai.com/v1/images/generations', {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: att.model, prompt, n: 1, ...att.payload }),
+        body: JSON.stringify({ model: att.model, prompt: att.prompt, n: 1, ...att.payload }),
       });
       if (!res.ok) {
         const txt = await res.text();
@@ -596,7 +746,7 @@ async function compositeLogoOnImage(imageBuffer, logoPath, opts = {}) {
  * @param {object} blog         - Blog config row (needs context_path, name, domain)
  * @returns {Promise<{path, buffer, size, source}>}
  */
-async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}) {
+async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blogContent = '') {
   const sharp = require('sharp');
   let buffer = null;
   let source = 'gradient';
@@ -656,7 +806,7 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}) {
   // OpenAI (paid, top quality) — used first whenever a key is configured.
   const tryOpenAI = async () => {
     try {
-      const raw = await fetchOpenAIImage(imagePrompt || keyword, { width: spec.width, height: spec.height, bright: spec.bright });
+      const raw = await fetchOpenAIImage(imagePrompt || keyword, { width: spec.width, height: spec.height, bright: spec.bright, blogContent, title });
       if (raw) {
         buffer = await sharp(raw)
           .resize(spec.width, spec.height, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
@@ -689,10 +839,11 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}) {
   }
 
   // ── Logo composite: applied to ALL sources ──
-  // Bright/premium blogs (VC) keep higher webp quality + a larger size ceiling so the
-  // clean OpenAI/photo detail survives; others keep the lean <100KB target.
-  const finalQuality  = spec.bright ? 88 : 75;
-  const finalMaxBytes = spec.bright ? 240 * 1024 : 100 * 1024;
+  // Premium (VC) or any OpenAI-sourced image keeps higher webp quality + a larger
+  // size ceiling so the clean detail survives; free/stock sources keep the lean target.
+  const premium = spec.bright || source === 'openai';
+  const finalQuality  = premium ? 88 : 75;
+  const finalMaxBytes = premium ? 240 * 1024 : 100 * 1024;
   buffer = await compositeLogoOnImage(buffer, logoPath, { backing: spec.logoBacking, quality: finalQuality, maxBytes: finalMaxBytes });
 
   const tmpPath = path.join(os.tmpdir(), `ct-image-${Date.now()}.webp`);
@@ -703,4 +854,4 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}) {
   };
 }
 
-module.exports = { generateFeaturedImage, saveTempImage };
+module.exports = { generateFeaturedImage, saveTempImage, buildImagePrompts, compositeLogoOnImage };

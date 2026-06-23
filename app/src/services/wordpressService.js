@@ -78,7 +78,7 @@ async function postViaRestApi(config, content, rowData, onProgress) {
 
   // Resolve category IDs from sheet data (theme / target_industry) + fallback to config default
   if (onProgress) onProgress('Resolving categories, tags and industries...');
-  const categoryIds = await resolveCategories(apiBase, headers, rowData, config);
+  const categoryIds = await resolveCategories(apiBase, headers, rowData, config, content);
 
   // Resolve or create tags from both sheet secondary_keywords + generated tags
   const tagIds = await resolveTags(apiBase, headers, content, rowData, taxBases.tag);
@@ -96,7 +96,7 @@ async function postViaRestApi(config, content, rowData, onProgress) {
   let imageSource = '';
   try {
     if (onProgress) onProgress('Generating featured image...');
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config);
+    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content);
     imageSource = img.source || '';
     if (onProgress) onProgress(`Featured image created via ${imageSource} (${Math.round(img.size / 1024)}KB) — uploading...`);
 
@@ -586,7 +586,7 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
   let imageFilename = 'featured.webp';
   let imageSource = '';
   try {
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config);
+    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content);
     imageBase64 = img.buffer.toString('base64');
     imageFilename = img.path.split('/').pop();
     imageSource = img.source || '';
@@ -603,6 +603,9 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
   ].filter(Boolean).slice(0, 8);
 
   const categoryNames = [rowData.theme, rowData.target_industry].filter(Boolean);
+  // Fall back to the model-selected category when the sheet has no theme/industry
+  // (e.g. LaraCopilot) so the post lands in a relevant category, not Uncategorized.
+  if (!categoryNames.length && content.category) categoryNames.push(content.category);
 
   // Run all REST API operations inside the browser (uses the existing WP session)
   const result = await page.evaluate(async ({ wpUrl, postId, categoryNames, tags, industryNames, focusKeyword, metaDescription, seoTitle, slug, imageAlt, imageBase64, imageFilename }) => {
@@ -946,7 +949,7 @@ async function setFeaturedImage(page, content, rowData, onProgress) {
   let tmpPath = null;
   try {
     // Generate the image
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, {});
+    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, {}, content.content);
     tmpPath = img.path;
     if (onProgress) onProgress(`Featured image ready: ${img.source} (${Math.round(img.size / 1024)}KB)`);
 
@@ -1034,9 +1037,12 @@ async function fillClassicEditor(page, content, rowData, config, onProgress) {
 // REST API helpers: categories, tags, slugify
 // ─────────────────────────────────────────────────────────────
 
-async function resolveCategories(apiBase, headers, rowData, config) {
+async function resolveCategories(apiBase, headers, rowData, config, content = {}) {
   const defaultId = parseInt(config.wp_category) || 1;
   const candidates = [rowData.theme, rowData.target_industry].filter(Boolean);
+  // Fall back to the model-selected category when the sheet has no theme/industry
+  // (e.g. LaraCopilot) so the post lands in a relevant category, not Uncategorized.
+  if (!candidates.length && content.category) candidates.push(content.category);
   const ids = new Set([defaultId]);
 
   for (const name of candidates) {

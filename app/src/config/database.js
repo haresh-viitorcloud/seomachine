@@ -127,6 +127,7 @@ function initializeDatabase() {
     "ALTER TABLE jobs ADD COLUMN generated_ctas TEXT",
     "ALTER TABLE jobs ADD COLUMN image_source TEXT DEFAULT ''",
     "ALTER TABLE jobs ADD COLUMN seomachine_score REAL",
+    "ALTER TABLE jobs ADD COLUMN generated_category TEXT",
   ];
   for (const sql of migrations) {
     // Only swallow the expected "duplicate column" case; surface any other failure

@@ -20,7 +20,7 @@ SEO requirements for all LaraCopilot blog content. The audience is technical (La
 - Proper H1 → H2 → H3 hierarchy (never skip levels).
 - Key Takeaways block after the intro.
 - Comparison tables for "vs"/"alternative" posts; fenced code blocks (```php, ```bash, ```blade) where they add value.
-- FAQ section (4-6 questions) targeting People Also Ask.
+- Do NOT add a visible FAQ section at the end of the body. FAQs (4-6, targeting People Also Ask) are delivered as FAQPage **schema** via the `faq` field only — the body ends with the conclusion + CTA.
 
 ## Meta Elements
 - **Meta title**: 50-60 characters, primary keyword near the front, compelling. Include the year for tool roundups/pricing pieces.
@@ -42,7 +42,7 @@ AI engines (ChatGPT, Perplexity, Gemini, Claude) are a major discovery channel f
 - **Direct-answer-first**: answer the query in the first 1-2 sentences (the "short answer" pattern). Put the answer in the meta description too.
 - **Key Takeaways block**: 3-5 specific, standalone bullets after the intro — these get pulled into AI summaries.
 - **One idea per section** so individual sections are citable.
-- **FAQ in natural prompt language** (how developers actually ask).
+- **FAQ in natural prompt language** (how developers actually ask), delivered as FAQPage schema (the `faq` field) — not as an on-page section.
 - **Authority signals**: named author, last-updated date, year in time-sensitive titles.
 - **Comparisons and "alternative" pages** are frequently surfaced by AI for tool-choice prompts — keep them fair and specific.
 
@@ -59,7 +59,7 @@ AI engines (ChatGPT, Perplexity, Gemini, Claude) are a major discovery channel f
 - [ ] Comparison table (for vs/alternative posts)
 - [ ] 3-5 internal links (per internal-links-map.md) + 2-4 external authority links
 - [ ] Meta title 50-60 chars, meta description 150-160 chars, slug optimized
-- [ ] FAQ (4-6) in natural language
+- [ ] FAQ (4-6) provided as schema (the `faq` field) — NOT rendered as an on-page FAQ section
 - [ ] No em dashes, no colons/semicolons in headings
 - [ ] All claims accurate and verifiable; sources cited
 
