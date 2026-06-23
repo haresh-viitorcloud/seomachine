@@ -96,9 +96,14 @@ function imageSpecForBlog(blog = {}) {
   const naturalLogo = isVc
     || slug === 'everycred'   || /\/blogs\/everycred(\/|$)/.test(ctx)   || name.includes('everycred')
     || slug === 'everyticket' || /\/blogs\/everyticket(\/|$)/.test(ctx) || name.includes('everyticket');
+  // LaraCopilot uses a flat-design marketing BANNER (headline + checklist card + real
+  // logo) instead of the photoreal hero. Generated via OpenAI gpt-image-1; the real
+  // logo.svg is overlaid afterward (the prompt forbids an AI-drawn logo).
+  const isLc = slug === 'lc' || slug === 'laracopilot'
+    || /\/blogs\/laracopilot(\/|$)/.test(ctx) || name.includes('laracopilot');
   return isVc
-    ? { width: 1520, height: 1008, logoBacking: false,        bright: true,  preferStock: false }
-    : { width: 1200, height: 630,  logoBacking: !naturalLogo, bright: false, preferStock: false };
+    ? { width: 1520, height: 1008, logoBacking: false,        bright: true,  preferStock: false, banner: false }
+    : { width: 1200, height: 630,  logoBacking: !naturalLogo, bright: false, preferStock: false, banner: isLc };
 }
 
 function escXml(s) {
@@ -415,6 +420,40 @@ Do not create distorted hands, extra fingers, duplicated faces, strange eyes, br
 FINAL OUTPUT:
 One futuristic, photorealistic blog hero image, {{SIZE}} px, with no text anywhere.`;
 
+// LaraCopilot flat-design marketing BANNER template (gpt-image-1). The AI draws NO logo
+// (a real logo.svg is overlaid afterward and aligned to the detected headline edge).
+// {{TITLE}} / {{BLOG_CONTENT}} are injected so the headline + checklist are topic-specific.
+const LC_BANNER_TEMPLATE = `Create a clean, modern, FLAT-DESIGN blog hero banner, wide 1200 x 630 landscape, for a LaraCopilot blog post. Minimalist premium SaaS marketing style. Solid light off-white/cream background (#F7F5F2) filling the ENTIRE canvas. Brand accent: vivid orange (#F0552A). Primary text near-black (#1A1A1A); secondary text muted grey. Flat vector UI design — NOT photorealistic, NOT 3D, no photographs.
+
+CRITICAL LAYOUT RULES:
+- This is a full-bleed banner. Leave EMPTY cream margins inside the canvas as a safe zone: at least 14% at the top and 14% at the bottom (these outer bands may be trimmed, so keep them completely empty), and at least 7% on the left and right. EVERY element — logo space, headline, subheading, button, card, checklist, summary line, and the URL — must sit fully within this safe zone. No letter or shape may touch, be cut off by, or extend past ANY edge.
+- Exactly TWO clearly separated columns with a clear empty vertical gutter between them. NOTHING may overlap, touch, or collide. Use lots of whitespace; do not crowd or clutter.
+- Do NOT draw any LaraCopilot logo, brand icon, atom/orbital mark, spark, or logo lockup ANYWHERE — a real logo is overlaid afterward. The word "LaraCopilot" may appear ONLY as plain text in the right card header label and on the CTA button.
+- TEXT SIZE: use refined, MODERATE font sizes with generous whitespace — make all text noticeably SMALLER than a typical oversized hero (reduce every text size by roughly 2 points). The headline is medium-large but never huge; the subheading, CTA label, card header, and checklist items are small. Leave comfortable empty space around every text block so the layout feels airy and elegant, not text-heavy.
+
+LEFT COLUMN (occupies the left ~45% of the width):
+- ALIGNMENT (important): every element in this column — the reserved logo space, the headline, the subheading, and the CTA button — must be LEFT-ALIGNED to the SAME vertical line, about 64px (5%) from the left edge of the canvas. Their left edges must line up exactly; do not indent any of them differently.
+- Leave the very top-left empty: a clean blank cream space about 70px tall (starting at that 64px left line) reserved for a logo added separately. Do NOT draw any logo, icon, or wordmark there.
+- Below that reserved space, a large bold sans-serif headline derived from the blog title, at most 3 lines, with the single most important phrase in orange and the rest near-black. Left edge on the 64px line. The headline must stay inside the left column and must NOT extend into or overlap the right card.
+- One short grey subheading sentence, left edge on the same 64px line.
+- A black pill-shaped CTA button reading "Try LaraCopilot", its left edge on the same 64px line.
+
+RIGHT COLUMN (occupies the right ~45% of the width):
+- One rounded-corner card with a thin light border on a slightly lighter cream fill, with comfortable inner padding.
+- Card header: the bold label "LaraCopilot generates" only. Do NOT add any other tag, label, icon, spark, or text in the header.
+- A thin full-width divider line.
+- EXACTLY 4 short checklist items relevant to the blog topic, evenly spaced with comfortable line spacing, each starting with a small orange circular checkmark. Keep each item to ONE short line; never let an item wrap or collide with the next.
+- A thin divider, then ONE short highlighted summary line.
+
+BOTTOM-RIGHT: "laracopilot.com" in small light grey, placed INSIDE the safe zone (clearly above the bottom margin, never at the very bottom edge).
+
+The result must look airy, balanced, and uncluttered like a high-end product landing-page hero. Absolutely no overlapping elements and no clipped or cut-off text.
+
+Blog title: {{TITLE}}
+
+Blog content:
+{{BLOG_CONTENT}}`;
+
 /**
  * Reduce blog HTML to clean plain text for use inside an image prompt: strip tags,
  * decode common entities, collapse whitespace, and cap length (keeps gpt-image-1
@@ -508,6 +547,82 @@ async function fetchOpenAIImage(imagePrompt, opts = {}) {
     }
   }
   return null;
+}
+
+/**
+ * Generate a LaraCopilot flat-design BANNER via OpenAI gpt-image-1, then composite the
+ * REAL logo.svg into the top-left (aligned to the detected headline edge). Returns a
+ * finished width×height WebP Buffer (logo already in place), or null on failure (no key,
+ * billing limit, etc.) so the pipeline can fall back to the free sources.
+ *
+ * The AI is told NOT to draw a logo; we overlay the real one and align its left edge to
+ * the headline's left edge (detected from pixels) since the AI sets its own text margin.
+ */
+async function fetchOpenAIBanner({ title = '', blogContent = '', logoPath = null, width = 1200, height = 630 } = {}) {
+  const apiKey = process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY;
+  fetchOpenAIImage._lastModel = null;
+  fetchOpenAIImage._lastUsage = null;
+  fetchOpenAIImage._lastError = null;
+  if (!apiKey) return null;
+
+  const sharp = require('sharp');
+  const body = stripForPrompt(blogContent) || title || 'a LaraCopilot blog post';
+  const prompt = LC_BANNER_TEMPLATE
+    .replace('{{TITLE}}', (title || '').slice(0, 200))
+    .replace('{{BLOG_CONTENT}}', body);
+
+  let buf;
+  try {
+    const res = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-image-1', prompt, n: 1, size: '1536x1024', quality: process.env.OPENAI_IMAGE_QUALITY || 'high' }),
+    });
+    if (!res.ok) {
+      fetchOpenAIImage._lastError = `banner: HTTP ${res.status} ${(await res.text()).substring(0, 200)}`;
+      console.warn(`[ImageService] OpenAI banner failed: HTTP ${res.status}`);
+      return null;
+    }
+    const json = await res.json();
+    const b64 = json?.data?.[0]?.b64_json;
+    if (!b64) { fetchOpenAIImage._lastError = 'banner: no image data'; return null; }
+    fetchOpenAIImage._lastModel = 'gpt-image-1';
+    fetchOpenAIImage._lastUsage = json.usage || null;
+    buf = Buffer.from(b64, 'base64');
+    console.log('[ImageService] OpenAI banner generated via gpt-image-1');
+  } catch (e) {
+    fetchOpenAIImage._lastError = `banner: ${e.message}`;
+    console.warn(`[ImageService] OpenAI banner error: ${e.message}`);
+    return null;
+  }
+
+  // Full-bleed cover to the target (the prompt keeps a >=14% empty top/bottom band, so
+  // the crop removes only blank space). No side bars, nothing clipped.
+  const base = await sharp(buf).resize(width, height, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 }).png().toBuffer();
+  if (!logoPath) return sharp(base).webp({ quality: 90 }).toBuffer();
+
+  // Detect the headline's left edge (the AI sets its own text margin) and align the real
+  // logo's left edge to it, so logo + headline + subhead + CTA share one line.
+  try {
+    const raw = await sharp(base).removeAlpha().raw().toBuffer();
+    const yStart = Math.round(height * 0.16), yEnd = Math.round(height * 0.40), xMax = Math.round(width * 0.5);
+    let found = width;
+    for (let y = yStart; y <= yEnd; y++) {
+      for (let x = 12; x < xMax; x++) {
+        const i = (y * width + x) * 3;
+        if (0.299 * raw[i] + 0.587 * raw[i + 1] + 0.114 * raw[i + 2] < 200) { if (x < found) found = x; break; }
+      }
+    }
+    const leftX = (found < xMax) ? found : Math.round(width * 0.05);
+    const logoBuf = await sharp(logoPath, { density: 320 }).resize({ width: Math.round(width * 0.175) }).png().toBuffer();
+    return sharp(base)
+      .composite([{ input: logoBuf, top: Math.round(height * 0.07), left: Math.max(12, leftX) }])
+      .webp({ quality: 90 })
+      .toBuffer();
+  } catch (e) {
+    console.warn(`[ImageService] banner logo overlay failed: ${e.message}`);
+    return sharp(base).webp({ quality: 90 }).toBuffer();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -806,6 +921,12 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
   // OpenAI (paid, top quality) — used first whenever a key is configured.
   const tryOpenAI = async () => {
     try {
+      // LaraCopilot: flat-design marketing banner (real logo overlaid, aligned in-place).
+      if (spec.banner) {
+        const bannerBuf = await fetchOpenAIBanner({ title, blogContent, logoPath, width: spec.width, height: spec.height });
+        if (bannerBuf) { buffer = bannerBuf; source = 'openai-banner'; return true; }
+        return false;  // banner failed (e.g. billing limit) → fall back to free sources
+      }
       const raw = await fetchOpenAIImage(imagePrompt || keyword, { width: spec.width, height: spec.height, bright: spec.bright, blogContent, title });
       if (raw) {
         buffer = await sharp(raw)
@@ -838,19 +959,22 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
     source = 'gradient';
   }
 
-  // ── Logo composite: applied to ALL sources ──
-  // Premium (VC) or any OpenAI-sourced image keeps higher webp quality + a larger
-  // size ceiling so the clean detail survives; free/stock sources keep the lean target.
-  const premium = spec.bright || source === 'openai';
-  const finalQuality  = premium ? 88 : 75;
-  const finalMaxBytes = premium ? 240 * 1024 : 100 * 1024;
-  buffer = await compositeLogoOnImage(buffer, logoPath, { backing: spec.logoBacking, quality: finalQuality, maxBytes: finalMaxBytes });
+  // ── Logo composite: applied to ALL sources EXCEPT the LaraCopilot banner, which
+  // already has the real logo overlaid and aligned in-place. ──
+  if (source !== 'openai-banner') {
+    // Premium (VC) or any OpenAI-sourced image keeps higher webp quality + a larger
+    // size ceiling so the clean detail survives; free/stock sources keep the lean target.
+    const premium = spec.bright || source === 'openai';
+    const finalQuality  = premium ? 88 : 75;
+    const finalMaxBytes = premium ? 240 * 1024 : 100 * 1024;
+    buffer = await compositeLogoOnImage(buffer, logoPath, { backing: spec.logoBacking, quality: finalQuality, maxBytes: finalMaxBytes });
+  }
 
   const tmpPath = path.join(os.tmpdir(), `ct-image-${Date.now()}.webp`);
   fs.writeFileSync(tmpPath, buffer);
   return {
     path: tmpPath, buffer, size: buffer.length, source,
-    ...(source === 'openai' ? { openaiModel: fetchOpenAIImage._lastModel, openaiUsage: fetchOpenAIImage._lastUsage } : {}),
+    ...(source.startsWith('openai') ? { openaiModel: fetchOpenAIImage._lastModel, openaiUsage: fetchOpenAIImage._lastUsage } : {}),
   };
 }
 

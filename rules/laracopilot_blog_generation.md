@@ -8,6 +8,17 @@ LaraCopilot is an AI coding copilot for Laravel/PHP developers. The audience is 
 
 ---
 
+## Blog Settings (LaraCopilot) — apply to EVERY post
+
+These publishing settings are fixed for the LaraCopilot blog and must be preserved on every article:
+
+- **FAQs → native "Blog FAQs" field (schema), never in the body.** Provide 4-6 FAQs in the `faq` field only. They are published into the WordPress theme's native **Blog FAQs** field as FAQPage structured data (schema) — do NOT write an FAQ section, "FAQ" heading, or the Q&As into the article body. The body ends with the conclusion + final CTA.
+- **Category → an EXISTING LaraCopilot category.** Set `category` to the single best-matching existing category from the list in "CATEGORY SELECTION" below. Never invent a new category.
+- **Featured image.** A 1200 x 630 photorealistic hero image is generated automatically from the blog content (no text in the image). Do not write image HTML in the body.
+- **Workflow / command pattern.** Run in order and do not break it: `/research` -> `/write` -> `/optimize` -> `/scrub`.
+
+---
+
 ## CRITICAL: Do Not Invent Brand Facts
 
 The context files are the ONLY source of truth for LaraCopilot specifics. Until they are filled in with real information:
