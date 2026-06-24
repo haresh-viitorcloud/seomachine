@@ -940,10 +940,23 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
     return false;
   };
 
-  // Order: OpenAI (if key present) → then per-blog free sources. ViitorCloud prefers
-  // real stock photos before the free AI; other blogs keep free-AI-first.
+  // Codex image_gen banner (built-in tool via the Codex CLI, ChatGPT login) — the
+  // PRIMARY source for all blogs. Generates a per-brand banner, then composites the
+  // real logo.svg. Falls through to the chain below if Codex is unavailable/fails.
+  const tryCodex = async () => {
+    try {
+      const { generateCodexBanner } = require('./codexImageService');
+      const b = await generateCodexBanner(title, blog, blogContent, spec);
+      if (b) { buffer = b; source = 'codex-banner'; return true; }
+    } catch { /* fall through to other sources */ }
+    return false;
+  };
+
+  // Order: Codex banner (all blogs) → OpenAI (if key) → per-blog free sources.
+  // ViitorCloud prefers real stock photos before the free AI; others keep free-AI-first.
   const hasOpenAI = !!(process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY);
   const order = [
+    tryCodex,
     ...(hasOpenAI ? [tryOpenAI] : []),
     ...(spec.preferStock ? [tryStock, tryAi] : [tryAi, tryStock]),
   ];
@@ -959,9 +972,9 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
     source = 'gradient';
   }
 
-  // ── Logo composite: applied to ALL sources EXCEPT the LaraCopilot banner, which
-  // already has the real logo overlaid and aligned in-place. ──
-  if (source !== 'openai-banner') {
+  // ── Logo composite: applied to ALL sources EXCEPT banners that already have the
+  // real logo overlaid in-place (LaraCopilot OpenAI banner, and the Codex banner). ──
+  if (source !== 'openai-banner' && source !== 'codex-banner') {
     // Premium (VC) or any OpenAI-sourced image keeps higher webp quality + a larger
     // size ceiling so the clean detail survives; free/stock sources keep the lean target.
     const premium = spec.bright || source === 'openai';
