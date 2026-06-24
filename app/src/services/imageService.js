@@ -22,9 +22,13 @@ const path = require('path');
 const os   = require('os');
 const https = require('https');
 
-// Seomachine repo root — context_path values in DB are relative to this, not to app/
-// e.g. "./blogs/vc/context" resolves to /var/www/seomachine/blogs/vc/context
-const APP_DIR = path.join(__dirname, '../../..');
+// Base dirs for resolving a blog's context_path → logo files. context_path values
+// are stored under two historical conventions: repo-root-relative ("./blogs/vc/context")
+// and app-relative ("../blogs/laracopilot/context"). resolveLogoPath tries both bases
+// so logos resolve regardless of which convention a given blog row uses.
+//   __dirname = <root>/app/src/services
+const REPO_ROOT = path.join(__dirname, '../../..');  // → <root>
+const APP_ROOT  = path.join(__dirname, '../..');     // → <root>/app
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -66,10 +70,12 @@ function downloadImage(url, timeoutMs = 10000) {
  */
 function resolveLogoPath(blog) {
   if (!blog || !blog.context_path) return null;
-  const contextDir = path.resolve(APP_DIR, blog.context_path);
-  for (const ext of ['svg', 'png', 'webp', 'jpg']) {
-    const candidate = path.join(contextDir, `logo.${ext}`);
-    if (fs.existsSync(candidate)) return candidate;
+  for (const base of [REPO_ROOT, APP_ROOT]) {
+    const contextDir = path.resolve(base, blog.context_path);
+    for (const ext of ['svg', 'png', 'webp', 'jpg']) {
+      const candidate = path.join(contextDir, `logo.${ext}`);
+      if (fs.existsSync(candidate)) return candidate;
+    }
   }
   return null;
 }
@@ -145,9 +151,12 @@ function wrapText(text, maxChars) {
  *
  * Returns a 1200×630 WebP Buffer, or null on failure / missing token.
  */
-async function fetchHuggingFaceImage(imagePrompt, keyword) {
+async function fetchHuggingFaceImage(imagePrompt, keyword, opts = {}) {
   const token = process.env.HF_API_TOKEN;
   if (!token) return null;
+
+  const outW = opts.width || 1200;
+  const outH = opts.height || 630;
 
   try {
     // Use Claude's generated image_prompt directly — it already contains specific
@@ -229,12 +238,12 @@ async function fetchHuggingFaceImage(imagePrompt, keyword) {
 
     const sharp = require('sharp');
     const buffer = await sharp(rawBuffer)
-      .resize(1200, 630, { fit: 'cover', position: 'centre', kernel: 'lanczos3' })
+      .resize(outW, outH, { fit: 'cover', position: 'centre', kernel: 'lanczos3' })
       .sharpen({ sigma: 1.2, m1: 1.5, m2: 6.0 })
       .webp({ quality: 95, effort: 6 })
       .toBuffer();
 
-    console.log(`[ImageService] HF FLUX image: ${Math.round(buffer.length / 1024)}KB`);
+    console.log(`[ImageService] HF FLUX image: ${Math.round(buffer.length / 1024)}KB (${outW}×${outH})`);
     return buffer;
 
   } catch (err) {
@@ -1012,6 +1021,17 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
   const aiQuery    = rawSubject ? `${rawSubject} concept` : 'technology concept';
 
   // ── Source attempts ──
+  // Hugging Face FLUX.1-schnell (requires HF_API_TOKEN) — primary AI source.
+  // For banner blogs (LaraCopilot) the OpenAI banner is preferred WHEN enabled; HF
+  // is used as the next source (the order array below enforces that precedence).
+  const tryHuggingFace = async () => {
+    if (!process.env.HF_API_TOKEN) return false;
+    try {
+      const hfBuffer = await fetchHuggingFaceImage(imagePrompt || keyword, keyword, { width: spec.width, height: spec.height });
+      if (hfBuffer) { buffer = hfBuffer; source = 'huggingface'; return true; }
+    } catch { /* fall through to next source */ }
+    return false;
+  };
   // Real photographs via Pexels → Unsplash (need free API keys; commercial-use,
   // no attribution). Genuine photos = correct anatomy, fully photorealistic.
   const tryStock = async () => {
@@ -1061,11 +1081,18 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
     return false;
   };
 
-  // Order: OpenAI (if key present) → then per-blog free sources. ViitorCloud prefers
-  // real stock photos before the free AI; other blogs keep free-AI-first.
-  const hasOpenAI = !!(process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY);
+  // Order: Hugging Face (primary AI) → OpenAI (if enabled) → per-blog free sources.
+  // ViitorCloud prefers real stock photos before free AI; other blogs keep free-AI-first.
+  //
+  // OpenAI is gated OFF by default: the configured key currently returns HTTP 400 and,
+  // being first, wasted two failed round-trips per image. Re-enable by setting
+  // OPENAI_IMAGE_ENABLED=true once the key/org is fixed (it then runs after HF).
+  const hasOpenAI = (process.env.OPENAI_IMAGE_ENABLED === 'true')
+    && !!(process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY);
   const order = [
-    ...(hasOpenAI ? [tryOpenAI] : []),
+    ...(spec.banner && hasOpenAI ? [tryOpenAI] : []),   // banner blogs (LaraCopilot): OpenAI banner first WHEN enabled
+    tryHuggingFace,                                       // HF FLUX.1-schnell — primary AI source
+    ...(!spec.banner && hasOpenAI ? [tryOpenAI] : []),  // non-banner: OpenAI after HF when enabled
     ...(spec.preferStock ? [tryStock, tryAi] : [tryAi, tryStock]),
   ];
   for (const attempt of order) {
