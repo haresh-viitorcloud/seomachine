@@ -1064,13 +1064,15 @@ function extractH2Bullets(html) {
 function normalizeBullet(b) {
   if (b && typeof b === 'object') return { term: String(b.term || '').trim(), desc: String(b.desc || '').trim() };
   const s = String(b == null ? '' : b).replace(/\s+/g, ' ').trim();
-  const parts = s.split(/\s+[—–-]\s+/);
-  if (parts.length >= 2) return { term: parts[0].trim(), desc: parts.slice(1).join(' - ').trim() };
+  const parts = s.split(/\s+[—–-]\s+|:\s+/);   // split on dash-with-spaces or "Term: desc"
+  if (parts.length >= 2) return { term: parts[0].trim(), desc: parts.slice(1).join(', ').trim() };
   return { term: '', desc: s };
 }
 
 // Build banner data from parsed content + blog, preferring model-supplied banner_*.
 function buildBannerData(content = {}, blog = {}, theme) {
+  // LaraCopilot style: no em/en dashes in the image — convert any to a middle dot.
+  const noDash = s => String(s || '').replace(/\s*[—–]\s*/g, ' · ').replace(/\s{2,}/g, ' ').trim();
   // Headline: explicit line breaks in banner_headline win; else wrap the title.
   const rawHeadline = content.banner_headline || content.title || '';
   const headlineLines = rawHeadline.includes('\n')
@@ -1088,6 +1090,7 @@ function buildBannerData(content = {}, blog = {}, theme) {
   // Subhead: model banner_subhead, else first sentence of meta_description.
   let subhead = content.banner_subhead || '';
   if (!subhead && content.meta_description) subhead = String(content.meta_description).split(/(?<=[.!?])\s/)[0];
+  subhead = noDash(subhead);
   subhead = subhead.length > 84 ? subhead.slice(0, 81).trim() + '…' : subhead;
 
   // Bullets: model banner_bullets → blog default product list → article H2s.
@@ -1095,20 +1098,20 @@ function buildBannerData(content = {}, blog = {}, theme) {
   if (raw.length < 3 && theme.defaultBullets) raw = theme.defaultBullets;
   if (raw.length < 3) raw = extractH2Bullets(content.content);
   const bullets = raw.slice(0, 6).map(normalizeBullet).map(b => ({
-    term: b.term.length > 20 ? b.term.slice(0, 19).trim() + '…' : b.term,
-    desc: b.desc.length > 40 ? b.desc.slice(0, 39).trim() + '…' : b.desc,
+    term: noDash(b.term).length > 20 ? noDash(b.term).slice(0, 19).trim() + '…' : noDash(b.term),
+    desc: noDash(b.desc).length > 40 ? noDash(b.desc).slice(0, 39).trim() + '…' : noDash(b.desc),
   }));
 
   return {
-    headlineLines,
+    headlineLines: headlineLines.map(noDash),
     highlightLine,
     subhead,
     cta: content.banner_cta || theme.cta,
-    cardHeader: content.banner_card_header || theme.cardHeader,
+    cardHeader: noDash(content.banner_card_header || theme.cardHeader),
     tag: content.banner_tag || theme.defaultTag || '',
     bullets,
-    footer: content.banner_footer || '',   // rich check-style footer (e.g. "Lead · rest")
-    footerDefault: theme.footer || '',     // fallback badge-style footer
+    footer: noDash(content.banner_footer || ''),   // rich check-style footer (e.g. "Lead · rest")
+    footerDefault: theme.footer || '',             // fallback badge-style footer
     domain: blog.domain || '',
   };
 }
@@ -1134,7 +1137,7 @@ function renderBannerSvg(d, theme) {
   const bullets = d.bullets.slice(0, 6).map((b, i) => {
     const y = bulStart + i * bulStep;
     const txt = b.term
-      ? `<tspan font-weight="700" fill="${C.dark}">${escSvg(b.term)}</tspan><tspan fill="${C.desc}">${NB}—${NB}${escSvg(b.desc)}</tspan>`
+      ? `<tspan font-weight="700" fill="${C.dark}">${escSvg(b.term)}:</tspan><tspan dx="5" fill="${C.desc}">${escSvg(b.desc)}</tspan>`
       : `<tspan fill="#2A2A2A">${escSvg(b.desc)}</tspan>`;
     return `<circle cx="${inX + r}" cy="${y}" r="${r}" fill="${C.accent}"/>` +
       `<path d="M ${inX + r - 5} ${y} l 3.2 3.4 l 6.2 -6.6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` +
@@ -1147,10 +1150,11 @@ function renderBannerSvg(d, theme) {
   if (d.footer) {
     const parts = d.footer.split(/\s*[·|]\s*/);
     const lead = parts[0] || '';
-    const rest = parts.length > 1 ? `${NB}·${NB}${parts.slice(1).join(' · ')}` : '';
+    const restText = parts.slice(1).join(' · ');
+    const restSvg = restText ? `<tspan dx="7" fill="${C.desc}">·</tspan><tspan dx="7" fill="${C.desc}">${escSvg(restText)}</tspan>` : '';
     footerSvg = `<circle cx="${inX + r}" cy="${dY2 + 30}" r="${r}" fill="${C.accent}"/>` +
       `<path d="M ${inX + r - 5} ${dY2 + 30} l 3.2 3.4 l 6.2 -6.6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` +
-      `<text x="${inX + 2 * r + 13}" y="${dY2 + 35}" font-family="Arial, Helvetica, sans-serif" font-size="14"><tspan font-weight="700" fill="${C.dark}">${escSvg(lead)}</tspan><tspan fill="${C.desc}">${escSvg(rest)}</tspan></text>`;
+      `<text x="${inX + 2 * r + 13}" y="${dY2 + 35}" font-family="Arial, Helvetica, sans-serif" font-size="14"><tspan font-weight="700" fill="${C.dark}">${escSvg(lead)}</tspan>${restSvg}</text>`;
   } else {
     footerSvg = `<circle cx="${inX + 11}" cy="${dY2 + 30}" r="11" fill="none" stroke="${C.accent}" stroke-width="1.8"/>` +
       `<text x="${inX + 11}" y="${dY2 + 34}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="${C.accent}">10</text>` +
@@ -1324,13 +1328,16 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
   // OPENAI_IMAGE_ENABLED=true once the key/org is fixed (it then runs after HF).
   const hasOpenAI = (process.env.OPENAI_IMAGE_ENABLED === 'true')
     && !!(process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY);
-  const order = [
-    ...(spec.banner ? [tryCodeBanner] : []),            // banner blogs (LaraCopilot): deterministic code banner first
-    ...(spec.banner && hasOpenAI ? [tryOpenAI] : []),   // then OpenAI banner WHEN enabled (fallback)
-    tryHuggingFace,                                       // HF FLUX.1-schnell — primary AI source
-    ...(!spec.banner && hasOpenAI ? [tryOpenAI] : []),  // non-banner: OpenAI after HF when enabled
-    ...(spec.preferStock ? [tryStock, tryAi] : [tryAi, tryStock]),
-  ];
+  // Banner blogs (LaraCopilot) are CLAUDE-ONLY: the deterministic code banner is the
+  // sole source (its content is authored by Claude). No AI image models are used; if
+  // the banner somehow fails, the SVG-gradient last resort below still yields an image.
+  const order = spec.banner
+    ? [tryCodeBanner]
+    : [
+        tryHuggingFace,                                       // HF FLUX.1-schnell — primary AI source
+        ...(hasOpenAI ? [tryOpenAI] : []),                  // OpenAI after HF when enabled
+        ...(spec.preferStock ? [tryStock, tryAi] : [tryAi, tryStock]),
+      ];
   for (const attempt of order) {
     if (!buffer) await attempt();
   }

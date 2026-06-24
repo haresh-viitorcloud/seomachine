@@ -129,18 +129,23 @@ function buildUserPrompt({ row = {}, additionalInstructions = '', blog = {} }) {
   // AI image. Ask for short, punchy banner fields the renderer places as exact text.
   const banner = isBannerBlog(blog);
   const bannerInstr = banner ? `
-FLAT MARKETING BANNER (this blog renders a designed banner, NOT an AI photo):
-- banner_headline: a SHORT punchy hero headline (3-6 words, max ~28 chars), NOT the SEO title. e.g. "Laravel for Non-Developers".
+FLAT MARKETING BANNER (this blog renders a designed banner FROM these fields, NOT an AI photo):
+- CRITICAL: write ALL banner fields in plain language with NO em-dashes (—) and NO en-dashes (–) anywhere. Use commas, colons, or a middle dot (·) instead.
+- banner_headline: a SHORT punchy hero headline (3-6 words), NOT the SEO title. Use "\\n" to split it into 2-3 short lines.
 - banner_highlight: the ONE phrase within banner_headline to accent in brand colour (must appear verbatim in banner_headline).
 - banner_subhead: one short benefit line (max ~70 chars).
-- banner_bullets: EXACTLY 6 short capability/benefit phrases (each 2-5 words, max ~30 chars) relevant to THIS article.
-- banner_tag: a short uppercase audience/category tag (max ~22 chars), e.g. "FOR NON-DEVELOPERS".` : '';
+- banner_card_header: a 2-4 word title for the right-hand card (e.g. "Why Laravel still wins").
+- banner_tag: a SHORT uppercase tag for the card (max ~18 chars, e.g. "THE 2026 CASE").
+- banner_bullets: EXACTLY 6 objects {"term","desc"} relevant to THIS article. term = 1-3 word label; desc = 2-5 word phrase.
+- banner_footer: one short summary line; you may join two short clauses with " · ".` : '';
   const bannerKeys = banner ? `
-  "banner_headline": "short punchy hero headline (3-6 words)",
-  "banner_highlight": "the phrase within banner_headline to accent",
-  "banner_subhead": "one short benefit line",
-  "banner_bullets": ["6 short capability phrases"],
-  "banner_tag": "SHORT UPPERCASE TAG",` : '';
+  "banner_headline": "short punchy headline with \\n line breaks",
+  "banner_highlight": "phrase within banner_headline to accent",
+  "banner_subhead": "one short benefit line, no em-dashes",
+  "banner_card_header": "2-4 word card title",
+  "banner_tag": "SHORT UPPERCASE TAG",
+  "banner_bullets": [{"term":"label","desc":"short phrase"}],
+  "banner_footer": "short summary, optional ' · ' separator, no em-dashes",` : '';
 
   return `Write a complete, SEO-optimized blog article using the methodology and brand context above.
 
