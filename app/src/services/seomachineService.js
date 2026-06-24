@@ -112,11 +112,35 @@ function renderRow(row = {}) {
  * Build the user prompt: the article brief + additional instructions + the STRICT
  * JSON output contract that parseGeneratedContent expects.
  */
-function buildUserPrompt({ row = {}, additionalInstructions = '' }) {
+function isBannerBlog(blog = {}) {
+  const slug = String(blog.slug || '').toLowerCase();
+  const name = String(blog.name || '').toLowerCase();
+  const ctx  = String(blog.context_path || '').toLowerCase().replace(/\\/g, '/');
+  return slug === 'lc' || slug === 'laracopilot' || /laracopilot/.test(name) || /\/blogs\/laracopilot(\/|$)/.test(ctx);
+}
+
+function buildUserPrompt({ row = {}, additionalInstructions = '', blog = {} }) {
   const brief = renderRow(row);
   const addl = additionalInstructions && String(additionalInstructions).trim()
     ? `\n================= ADDITIONAL INSTRUCTIONS (HIGHEST PRIORITY) =================\n${String(additionalInstructions).trim()}\n`
     : '';
+
+  // Banner blogs (LaraCopilot) use a code-rendered flat marketing banner instead of an
+  // AI image. Ask for short, punchy banner fields the renderer places as exact text.
+  const banner = isBannerBlog(blog);
+  const bannerInstr = banner ? `
+FLAT MARKETING BANNER (this blog renders a designed banner, NOT an AI photo):
+- banner_headline: a SHORT punchy hero headline (3-6 words, max ~28 chars), NOT the SEO title. e.g. "Laravel for Non-Developers".
+- banner_highlight: the ONE phrase within banner_headline to accent in brand colour (must appear verbatim in banner_headline).
+- banner_subhead: one short benefit line (max ~70 chars).
+- banner_bullets: EXACTLY 6 short capability/benefit phrases (each 2-5 words, max ~30 chars) relevant to THIS article.
+- banner_tag: a short uppercase audience/category tag (max ~22 chars), e.g. "FOR NON-DEVELOPERS".` : '';
+  const bannerKeys = banner ? `
+  "banner_headline": "short punchy hero headline (3-6 words)",
+  "banner_highlight": "the phrase within banner_headline to accent",
+  "banner_subhead": "one short benefit line",
+  "banner_bullets": ["6 short capability phrases"],
+  "banner_tag": "SHORT UPPERCASE TAG",` : '';
 
   return `Write a complete, SEO-optimized blog article using the methodology and brand context above.
 
@@ -131,10 +155,10 @@ Write an image_prompt (max 60 words) that describes 2-3 specific visual elements
 - Subject: name 2-3 concrete objects/elements (e.g. "glowing shield with circuit patterns, floating cloud nodes, padlock")
 - No text, labels, or captions anywhere in the image
 - Keep upper-left corner visually calm (reserved for logo overlay)
-
+${bannerInstr}
 CRITICAL OUTPUT FORMAT — respond with ONLY a single valid JSON object. No prose, no markdown code fences. Use EXACTLY these keys:
 {
-  "title": "H1 post title",
+  "title": "H1 post title",${bannerKeys}
   "seo_title": "50-60 chars, starts with the primary keyword",
   "slug": "keyword-rich-hyphenated-url-slug",
   "meta_description": "150-160 chars, primary keyword within the first 120 chars",

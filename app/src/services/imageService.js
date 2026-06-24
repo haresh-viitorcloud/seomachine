@@ -157,6 +157,7 @@ async function fetchHuggingFaceImage(imagePrompt, keyword, opts = {}) {
 
   const outW = opts.width || 1200;
   const outH = opts.height || 630;
+  const bright = opts.bright || false;  // VC = airy white; all other blogs = dark cinematic navy
 
   try {
     // Use Claude's generated image_prompt directly — it already contains specific
@@ -179,16 +180,28 @@ async function fetchHuggingFaceImage(imagePrompt, keyword, opts = {}) {
     ];
     const accent = ACCENTS[Math.floor(Math.random() * ACCENTS.length)];
 
-    const fullPrompt = [
-      subjectDesc,
-      accent,
-      'pure white infinite background no room no walls no ceiling no floor lines',
-      'professional soft-box product lighting',
-      'masterpiece 8K UHD ultra sharp crisp details vivid colors',
-      'f22 pan focus everything in focus no blur no bokeh no depth of field',
-      'correct proportions no distortion no fisheye no wide-angle',
-      'no text no letters no watermarks no captions',
-    ].join(', ');
+    // VC uses a bright, clean, airy aesthetic; all other blogs use the dark-cinematic
+    // navy look (mirrors fetchPollinationsImage so both AI sources match).
+    const styleDirectives = bright
+      ? [
+          'pure white infinite background no room no walls no ceiling no floor lines',
+          'professional soft-box product lighting',
+          'masterpiece 8K UHD ultra sharp crisp details vivid colors',
+          'f22 pan focus everything in focus no blur no bokeh no depth of field',
+          'correct proportions no distortion no fisheye no wide-angle',
+          'no text no letters no watermarks no captions',
+        ]
+      : [
+          'dark cinematic 3D digital illustration',
+          'deep navy blue background',
+          'dramatic teal electric blue accent lighting',
+          'glowing holographic elements',
+          'photorealistic render quality, masterpiece 8K UHD ultra sharp crisp details',
+          'cinematic depth of field',
+          'upper left corner visually calm',
+          'no text no letters no watermarks no captions',
+        ];
+    const fullPrompt = [subjectDesc, accent, ...styleDirectives].join(', ');
 
     const seed = Math.floor(Math.random() * 2147483647);
     const body = JSON.stringify({
@@ -972,6 +985,184 @@ async function compositeLogoOnImage(imageBuffer, logoPath, opts = {}) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Code-rendered marketing banner (deterministic SVG → WebP)
+//
+// "banner" blogs (e.g. LaraCopilot) get a flat-design marketing banner with EXACT
+// text, rendered from an SVG template — not an AI image model (which can't reliably
+// render exact headlines/checklists). Deterministic, free, and matches the brand
+// reference 1:1. Headline + subhead are article-specific; bullets prefer the model's
+// banner_bullets, falling back to the blog's default product-capability list.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Per-blog banner theme. Add a blog here to give it a code-rendered banner.
+const BANNER_THEMES = {
+  lc: {
+    accent: '#F0552A',
+    cardHeader: 'LaraCopilot generates',
+    cta: 'Try LaraCopilot',
+    footer: 'Ready in 10 minutes · No PHP required to start',
+    defaultTag: 'FOR NON-DEVELOPERS',
+    // Fallback bullets when the model doesn't supply article-specific banner_bullets.
+    defaultBullets: [
+      'Internal dashboards & admin tools',
+      'CRMs & lead management',
+      'Customer forms & onboarding',
+      'Inventory & order tracking',
+      'Auth + role-based access',
+      'Hand-off-ready Laravel code',
+    ],
+  },
+};
+
+function bannerThemeForBlog(blog = {}) {
+  const slug = String(blog.slug || '').toLowerCase();
+  const name = String(blog.name || '').toLowerCase();
+  const ctx  = String(blog.context_path || '').toLowerCase().replace(/\\/g, '/');
+  if (slug === 'lc' || slug === 'laracopilot' || /laracopilot/.test(name) || /\/blogs\/laracopilot(\/|$)/.test(ctx)) {
+    return BANNER_THEMES.lc;
+  }
+  return null;
+}
+
+function escSvg(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Greedy word-wrap a headline into up to maxLines lines of ~maxChars each.
+function wrapHeadline(title, maxChars = 18, maxLines = 3) {
+  const words = String(title || '').trim().split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    if (!cur) cur = w;
+    else if ((cur + ' ' + w).length <= maxChars) cur += ' ' + w;
+    else { lines.push(cur); cur = w; }
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > maxLines) {
+    const head = lines.slice(0, maxLines - 1);
+    head.push(lines.slice(maxLines - 1).join(' '));
+    return head;
+  }
+  return lines;
+}
+
+function extractH2Bullets(html) {
+  const out = [];
+  const re = /<h2[^>]*>([\s\S]*?)<\/h2>/gi;
+  let m;
+  while ((m = re.exec(String(html || ''))) && out.length < 6) {
+    let t = m[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&[a-z]+;/g, '').replace(/\s+/g, ' ').trim();
+    t = t.replace(/^how to\s+/i, '').replace(/\s+(for|with|in|to)\s+.*$/i, '');
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+// Build banner data from parsed content + blog, preferring model-supplied banner_*.
+function buildBannerData(content = {}, blog = {}, theme) {
+  const title = content.banner_headline || content.title || '';
+  const headlineLines = wrapHeadline(title);
+
+  // Highlight the line matching banner_highlight (or the middle line, as in the reference).
+  let highlightLine = Math.min(1, Math.max(0, headlineLines.length - 1));
+  const hl = String(content.banner_highlight || '').toLowerCase().trim();
+  if (hl) {
+    const idx = headlineLines.findIndex(l => l.toLowerCase().includes(hl) || hl.includes(l.toLowerCase()));
+    if (idx >= 0) highlightLine = idx;
+  }
+
+  // Subhead: model banner_subhead, else first sentence of meta_description.
+  let subhead = content.banner_subhead || '';
+  if (!subhead && content.meta_description) subhead = String(content.meta_description).split(/(?<=[.!?])\s/)[0];
+  subhead = subhead.length > 78 ? subhead.slice(0, 75).trim() + '…' : subhead;
+
+  // Bullets: model banner_bullets → blog default product list → article H2s.
+  let bullets = Array.isArray(content.banner_bullets) ? content.banner_bullets.filter(Boolean) : [];
+  if (bullets.length < 3 && theme.defaultBullets) bullets = theme.defaultBullets;
+  if (bullets.length < 3) bullets = extractH2Bullets(content.content);
+  bullets = bullets.map(b => String(b).replace(/\s+/g, ' ').trim()).filter(Boolean)
+    .map(b => (b.length > 34 ? b.slice(0, 33).trim() + '…' : b)).slice(0, 6);
+
+  return {
+    headlineLines,
+    highlightLine,
+    subhead,
+    cta: theme.cta,
+    cardHeader: theme.cardHeader,
+    tag: content.banner_tag || theme.defaultTag || '',
+    bullets,
+    footer: theme.footer,
+    domain: blog.domain || '',
+  };
+}
+
+function renderBannerSvg(d, theme) {
+  const W = 1200, H = 630;
+  const C = { bg: '#F7F5F2', card: '#FBFAF8', border: '#E8E2D8', dark: '#1A1A1A', grey: '#6F6B66', greyLt: '#9A958E', accent: theme.accent };
+  const LX = 72, cardX = 628, cardY = 96, cardW = 508, cardH = 438;
+  const inX = cardX + 36, inR = cardX + cardW - 36;
+
+  // Auto-fit the headline so the longest line never overflows the left column (~470px).
+  const maxLen = Math.max(1, ...d.headlineLines.map(l => l.length));
+  const hlSize = Math.max(30, Math.min(54, Math.round(470 / (0.58 * maxLen))));
+  const hlStep = Math.round(hlSize * 1.16);
+  const hlStart = 224;
+  const headline = d.headlineLines.map((ln, i) =>
+    `<text x="${LX}" y="${hlStart + i * hlStep}" font-family="Arial, Helvetica, sans-serif" font-size="${hlSize}" font-weight="700" fill="${i === d.highlightLine ? C.accent : C.dark}">${escSvg(ln)}</text>`).join('');
+
+  const bulStart = 214, bulStep = 45;
+  const n = Math.min(d.bullets.length, 6);
+  const bullets = d.bullets.slice(0, 6).map((b, i) => {
+    const y = bulStart + i * bulStep, r = 11;
+    return `<circle cx="${inX + r}" cy="${y}" r="${r}" fill="${C.accent}"/>` +
+      `<path d="M ${inX + r - 5} ${y} l 3.2 3.4 l 6.2 -6.6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `<text x="${inX + 2 * r + 12}" y="${y + 5.5}" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#2A2A2A">${escSvg(b)}</text>`;
+  }).join('');
+  const dY2 = bulStart + n * bulStep - 12;
+
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+  <rect width="${W}" height="${H}" fill="${C.bg}"/>
+  ${headline}
+  <text x="${LX}" y="428" font-family="Arial, Helvetica, sans-serif" font-size="19" fill="${C.grey}">${escSvg(d.subhead)}</text>
+  <rect x="${LX}" y="468" width="232" height="56" rx="28" fill="${C.dark}"/>
+  <text x="${LX + 116}" y="503" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#fff">${escSvg(d.cta)} →</text>
+  <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="18" fill="${C.card}" stroke="${C.border}" stroke-width="1.5"/>
+  <path d="M ${inX + 6} 140 l 3 8 l 8 3 l -8 3 l -3 8 l -3 -8 l -8 -3 l 8 -3 z" fill="${C.accent}"/>
+  <text x="${inX + 26}" y="156" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" fill="${C.dark}">${escSvg(d.cardHeader)}</text>
+  ${d.tag ? `<text x="${inR}" y="153" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="11" letter-spacing="1" fill="${C.greyLt}">${escSvg(d.tag)}</text>` : ''}
+  <line x1="${inX}" y1="180" x2="${inR}" y2="180" stroke="${C.border}" stroke-width="1.5"/>
+  ${bullets}
+  <line x1="${inX}" y1="${dY2}" x2="${inR}" y2="${dY2}" stroke="${C.border}" stroke-width="1.5"/>
+  <circle cx="${inX + 11}" cy="${dY2 + 30}" r="11" fill="none" stroke="${C.accent}" stroke-width="1.8"/>
+  <text x="${inX + 11}" y="${dY2 + 34}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="${C.accent}">10</text>
+  <text x="${inX + 34}" y="${dY2 + 35}" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="${C.dark}">${escSvg(d.footer)}</text>
+  ${d.domain ? `<text x="${W - 64}" y="600" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="${C.greyLt}">${escSvg(d.domain)}</text>` : ''}
+</svg>`;
+}
+
+/**
+ * Generate the code-rendered marketing banner as a WebP buffer (logo composited
+ * top-left). Returns null if the blog has no banner theme registered.
+ */
+async function generateCodeBanner(content, blog, logoPath, spec = {}) {
+  const theme = bannerThemeForBlog(blog);
+  if (!theme) return null;
+  const sharp = require('sharp');
+  const W = spec.width || 1200, H = spec.height || 630;
+  const data = buildBannerData(content, blog, theme);
+  const svg = renderBannerSvg(data, theme);
+  let base = await sharp(Buffer.from(svg)).resize(W, H, { fit: 'fill' }).png().toBuffer();
+  if (logoPath) {
+    try {
+      const logoBuf = await sharp(logoPath, { density: 320 }).resize({ height: Math.round(40 * (H / 630)) }).png().toBuffer();
+      base = await sharp(base).composite([{ input: logoBuf, top: Math.round(56 * (H / 630)), left: Math.round(72 * (W / 1200)) }]).png().toBuffer();
+    } catch (e) { console.warn('[ImageService] banner logo overlay failed:', e.message); }
+  }
+  return sharp(base).webp({ quality: 92 }).toBuffer();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -991,7 +1182,7 @@ async function compositeLogoOnImage(imageBuffer, logoPath, opts = {}) {
  * @param {object} blog         - Blog config row (needs context_path, name, domain)
  * @returns {Promise<{path, buffer, size, source}>}
  */
-async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blogContent = '') {
+async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blogContent = '', content = {}) {
   const sharp = require('sharp');
   let buffer = null;
   let source = 'gradient';
@@ -1021,13 +1212,23 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
   const aiQuery    = rawSubject ? `${rawSubject} concept` : 'technology concept';
 
   // ── Source attempts ──
+  // Code-rendered marketing banner (banner blogs only, e.g. LaraCopilot) — primary,
+  // deterministic, exact text. Falls through to AI/stock if the blog has no theme.
+  const tryCodeBanner = async () => {
+    if (!spec.banner) return false;
+    try {
+      const b = await generateCodeBanner(content, blog, logoPath, spec);
+      if (b) { buffer = b; source = 'code-banner'; return true; }
+    } catch (e) { console.warn('[ImageService] code banner failed:', e.message); }
+    return false;
+  };
   // Hugging Face FLUX.1-schnell (requires HF_API_TOKEN) — primary AI source.
   // For banner blogs (LaraCopilot) the OpenAI banner is preferred WHEN enabled; HF
   // is used as the next source (the order array below enforces that precedence).
   const tryHuggingFace = async () => {
     if (!process.env.HF_API_TOKEN) return false;
     try {
-      const hfBuffer = await fetchHuggingFaceImage(imagePrompt || keyword, keyword, { width: spec.width, height: spec.height });
+      const hfBuffer = await fetchHuggingFaceImage(imagePrompt || keyword, keyword, { width: spec.width, height: spec.height, bright: spec.bright });
       if (hfBuffer) { buffer = hfBuffer; source = 'huggingface'; return true; }
     } catch { /* fall through to next source */ }
     return false;
@@ -1090,7 +1291,8 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
   const hasOpenAI = (process.env.OPENAI_IMAGE_ENABLED === 'true')
     && !!(process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY);
   const order = [
-    ...(spec.banner && hasOpenAI ? [tryOpenAI] : []),   // banner blogs (LaraCopilot): OpenAI banner first WHEN enabled
+    ...(spec.banner ? [tryCodeBanner] : []),            // banner blogs (LaraCopilot): deterministic code banner first
+    ...(spec.banner && hasOpenAI ? [tryOpenAI] : []),   // then OpenAI banner WHEN enabled (fallback)
     tryHuggingFace,                                       // HF FLUX.1-schnell — primary AI source
     ...(!spec.banner && hasOpenAI ? [tryOpenAI] : []),  // non-banner: OpenAI after HF when enabled
     ...(spec.preferStock ? [tryStock, tryAi] : [tryAi, tryStock]),
@@ -1109,7 +1311,7 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
 
   // ── Logo composite: applied to ALL sources EXCEPT the LaraCopilot banner, which
   // already has the real logo overlaid and aligned in-place. ──
-  if (source !== 'openai-banner') {
+  if (source !== 'openai-banner' && source !== 'code-banner') {
     // Premium (VC) or any OpenAI-sourced image keeps higher webp quality + a larger
     // size ceiling so the clean detail survives; free/stock sources keep the lean target.
     const premium = spec.bright || source === 'openai';

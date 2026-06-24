@@ -251,8 +251,8 @@ Produce exactly 3 distinct CTAs that drive business and generate qualified leads
 - Also classify the article into ONE cta_category from this exact list (pick the closest fit): "ai", "cloud", "digital_transformation", "data", "technology_consulting", "digital_experience", or "default" if none clearly fits.
 
 ## FEATURED IMAGE
-Write a short image_prompt (max 60 words, first clause only) describing the article subject for image generation.
-- Style: photorealistic 3D render, bright white background, soft studio lighting, modern tech objects
+Write a short image_prompt (max 60 words, first clause only) describing a photorealistic dark-tech illustration for this article.
+- Style: dark cinematic 3D digital illustration, deep navy background, dramatic teal and blue accent lighting, glowing holographic elements, photorealistic render quality
 - Subject: 2-3 specific visual elements that represent THIS article topic (e.g. floating server, shield, cloud nodes)
 - Keep the upper-left corner visually calm (reserved for logo overlay)
 - No text, words, labels, or captions anywhere in the image
@@ -587,6 +587,15 @@ function parseGeneratedContent(rawText, row) {
       meta_description: normalizeMeta(parsed.meta_description || ''),
       image_prompt: parsed.image_prompt || '',
       image_alt: parsed.image_alt || row.primary_keyword || title,
+      // Code-rendered banner fields (banner blogs, e.g. LaraCopilot). Absent for other
+      // blogs / older content — imageService.buildBannerData falls back gracefully.
+      banner_headline: typeof parsed.banner_headline === 'string' ? parsed.banner_headline.trim() : '',
+      banner_highlight: typeof parsed.banner_highlight === 'string' ? parsed.banner_highlight.trim() : '',
+      banner_subhead: typeof parsed.banner_subhead === 'string' ? parsed.banner_subhead.trim() : '',
+      banner_tag: typeof parsed.banner_tag === 'string' ? parsed.banner_tag.trim() : '',
+      banner_bullets: Array.isArray(parsed.banner_bullets)
+        ? parsed.banner_bullets.map(s => String(s).trim()).filter(Boolean).slice(0, 6)
+        : [],
       tags: Array.isArray(parsed.tags) ? parsed.tags : [],
       faq: Array.isArray(parsed.faq) ? parsed.faq : [],
       // WordPress post category the model selected for this post (used at posting time
@@ -849,7 +858,7 @@ async function generateViaSeomachine(row, contextPath, rulesPath, onProgress, fe
   const feedbackSection = buildFeedbackSection(feedbackList);
 
   const systemContent = seomachine.buildSystemContent({ methodology, contextContent, rulesContent, feedbackSection, brand });
-  const userPrompt = seomachine.buildUserPrompt({ row, additionalInstructions });
+  const userPrompt = seomachine.buildUserPrompt({ row, additionalInstructions, blog });
 
   if (Array.isArray(feedbackList) && feedbackList.length && onProgress) {
     onProgress(`Applying ${feedbackList.length} editor feedback note${feedbackList.length !== 1 ? 's' : ''} to this generation`);

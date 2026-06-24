@@ -91,7 +91,7 @@ async function postViaRestApi(config, content, rowData, onProgress) {
   let imageSource = '';
   try {
     if (onProgress) onProgress('Generating featured image...');
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content);
+    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content, content);
     imageSource = img.source || '';
     if (onProgress) onProgress(`Featured image created via ${imageSource} (${Math.round(img.size / 1024)}KB) — uploading...`);
 
@@ -623,7 +623,7 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
   let imageFilename = 'featured.webp';
   let imageSource = '';
   try {
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content);
+    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content, content);
     imageBase64 = img.buffer.toString('base64');
     imageFilename = `${slugify(content.title)}.webp`;
     imageSource = img.source || '';
