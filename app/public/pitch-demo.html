@@ -458,9 +458,99 @@ body{display:flex}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--bord);cursor:pointer;transition:all .2s}
 .dot.active{background:var(--pri);transform:scale(1.3)}
 .dot.done{background:var(--ok)}
+
+/* ── Intro overlay (plain-English product explainer) ── */
+.intro-ov{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 50% 28%,#0e1c3a 0%,#06090f 72%);padding:24px;
+  transition:opacity .5s ease;overflow-y:auto}
+.intro-ov.hide{opacity:0;pointer-events:none}
+.intro-card{max-width:700px;width:100%;background:rgba(13,17,23,.9);border:1px solid rgba(99,102,241,.3);
+  border-radius:20px;padding:34px 38px;box-shadow:0 30px 80px rgba(0,0,0,.7),0 0 60px rgba(99,102,241,.1);
+  backdrop-filter:blur(14px);text-align:center}
+.intro-badge{display:inline-block;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--pri2);
+  background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);padding:5px 14px;border-radius:20px;margin-bottom:16px}
+.intro-h{font-size:27px;font-weight:800;margin-bottom:10px;line-height:1.25}
+.intro-h .hl{background:linear-gradient(90deg,var(--pri2),var(--acc));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.intro-lead{font-size:14px;color:var(--muted);line-height:1.65;margin:0 auto 24px;max-width:540px}
+.intro-steps{display:flex;gap:12px;margin-bottom:24px}
+.istep{flex:1;background:var(--s2);border:1px solid var(--bord);border-radius:12px;padding:16px 12px;text-align:center}
+.istep-ic{font-size:26px;margin-bottom:8px}
+.istep-t{font-size:12.5px;font-weight:700;margin-bottom:3px}
+.istep-d{font-size:10.5px;color:var(--muted);line-height:1.5}
+.istep-arrow{display:flex;align-items:center;color:var(--pri);font-size:18px}
+.intro-cta{display:flex;gap:14px;justify-content:center;align-items:center;flex-wrap:wrap}
+.intro-start{padding:13px 30px;font-size:14px;font-weight:700;color:#fff;border:none;border-radius:10px;cursor:pointer;
+  background:linear-gradient(135deg,var(--pri),#4f46e5);box-shadow:0 8px 30px rgba(99,102,241,.45);transition:transform .12s,box-shadow .2s}
+.intro-start:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(99,102,241,.6)}
+.intro-skip{font-size:12px;color:var(--muted);text-decoration:none;border-bottom:1px dashed transparent}
+.intro-skip:hover{color:var(--txt);border-bottom-color:var(--muted)}
+.intro-meta{margin-top:18px;font-size:11px;color:var(--muted)}
+.intro-meta b{color:var(--ok)}
+
+/* ── Scene explainer (under header title) ── */
+.hdr-left{display:flex;flex-direction:column;gap:3px;min-width:0;padding-right:16px}
+.hdr-explain{font-size:11.5px;color:var(--muted);line-height:1.45;max-width:72ch;font-weight:400;letter-spacing:0;text-transform:none}
+
+/* ── End actions inside done-box ── */
+.done-actions{display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap}
+.da-btn{padding:9px 18px;font-size:12px;font-weight:600;border-radius:8px;cursor:pointer;border:1px solid var(--bord);
+  background:var(--s2);color:var(--txt);text-decoration:none;display:inline-flex;align-items:center;gap:6px;transition:all .15s}
+.da-btn:hover{border-color:var(--pri);color:var(--pri)}
+.da-btn.pri{background:var(--pri);border-color:var(--pri);color:#fff}
+.da-btn.pri:hover{color:#fff;box-shadow:0 6px 20px rgba(99,102,241,.4)}
+
+/* ── Responsive (best-effort: the cinematic stage is fixed-layout, so we scale it down) ── */
+@media (max-width:980px){
+  .sb{display:none}
+  .theater{zoom:.82}
+}
+@media (max-width:680px){
+  .theater{zoom:.6}
+  .ctrl-bar{flex-wrap:wrap;gap:10px;justify-content:center}
+  .prog-wrap{order:5;max-width:none;width:100%;margin:0}
+  .hdr-explain{display:none}
+  .intro-card{padding:26px 20px}
+  .intro-steps{flex-direction:column}
+  .istep-arrow{transform:rotate(90deg);justify-content:center}
+  .intro-h{font-size:21px}
+}
+/* Fallback for browsers without `zoom` (older Firefox): scale the stage with transform */
+@supports not (zoom: 1){
+  @media (max-width:980px){ .theater{transform:scale(.82);transform-origin:top center} }
+  @media (max-width:680px){ .theater{transform:scale(.6);transform-origin:top center} }
+}
+/* In-demo exit — the sidebar is hidden below 980px, so give viewers a way back */
+.demo-exit{position:fixed;top:8px;left:10px;z-index:150;display:none;align-items:center;gap:5px;
+  padding:6px 12px;font-size:12px;font-weight:600;border-radius:8px;text-decoration:none;
+  background:rgba(13,17,23,.9);border:1px solid var(--bord);color:var(--txt);backdrop-filter:blur(8px)}
+.demo-exit:hover{border-color:var(--pri);color:var(--pri)}
+@media (max-width:980px){ .demo-exit{display:inline-flex} }
 </style>
 </head>
 <body>
+
+<!-- Intro / product explainer overlay -->
+<div class="intro-ov" id="introOv">
+  <div class="intro-card">
+    <div class="intro-badge">⚡ CT Automation · 60-second demo</div>
+    <div class="intro-h">From a spreadsheet to <span class="hl">publish-ready blog drafts</span></div>
+    <p class="intro-lead">CT Automation reads your blog content calendar and turns every row into a fully-written,
+      SEO-optimized WordPress draft — using Claude AI. No manual writing, no copy-pasting into WordPress.
+      Here's exactly how it works, end to end.</p>
+    <div class="intro-steps">
+      <div class="istep"><div class="istep-ic">📤</div><div class="istep-t">1 · Upload a sheet</div><div class="istep-d">Topics, keywords &amp; dates for one of your blogs</div></div>
+      <div class="istep-arrow">→</div>
+      <div class="istep"><div class="istep-ic">🧠</div><div class="istep-t">2 · Claude writes</div><div class="istep-d">Brand-aware outline, then a full article per row</div></div>
+      <div class="istep-arrow">→</div>
+      <div class="istep"><div class="istep-ic">📝</div><div class="istep-t">3 · WordPress draft</div><div class="istep-d">Formatted, imaged &amp; saved — ready to review</div></div>
+    </div>
+    <div class="intro-cta">
+      <button class="intro-start" onclick="startDemo()">▶ Start the demo</button>
+      <a class="intro-skip" href="/dashboard">Skip to the app →</a>
+    </div>
+    <div class="intro-meta">⏱ Runs in <b>~60 seconds</b> · 6 chapters · use <b>← →</b> keys or the controls to navigate</div>
+  </div>
+</div>
 
 <!-- Sidebar -->
 <aside class="sb">
@@ -477,8 +567,12 @@ body{display:flex}
 </aside>
 
 <div class="main">
+  <a class="demo-exit" href="/dashboard">✕ Exit demo</a>
   <div class="hdr">
-    <span class="hdr-title" id="hdrTitle">Scene 1 — The Brief</span>
+    <div class="hdr-left">
+      <span class="hdr-title" id="hdrTitle">Scene 1 — The Brief</span>
+      <span class="hdr-explain" id="hdrExplain"></span>
+    </div>
     <span class="hdr-counter" id="hdrCount">1 / 6</span>
   </div>
 
@@ -641,7 +735,7 @@ body{display:flex}
             <div class="bcards">
               <div class="bcard" id="bc1"><div class="bcard-icon">🏛️</div><div class="bcard-name">EveryCRED</div><div class="bcard-domain">everycred.com</div></div>
               <div class="bcard" id="bc2"><div class="bcard-icon">💻</div><div class="bcard-name">ViitorCloud</div><div class="bcard-domain">viitorcloud.com</div></div>
-              <div class="bcard" id="bc3"><div class="bcard-icon">🎟️</div><div class="bcard-name">EveryTicket</div><div class="bcard-domain">everyticket.com</div></div>
+              <div class="bcard" id="bc3"><div class="bcard-icon">🎟️</div><div class="bcard-name">EveryTicket</div><div class="bcard-domain">everyticket.in</div></div>
             </div>
           </div>
 
@@ -844,6 +938,10 @@ body{display:flex}
           <div class="sbox"><div class="sval g" id="sv4">0%</div><div class="slbl">Avg SEO</div></div>
         </div>
         <div class="done-footer">✨ 5 fully-optimised, SEO-ready blog drafts — delivered in minutes, not days</div>
+        <div class="done-actions">
+          <button class="da-btn" onclick="replayDemo()">↺ Replay demo</button>
+          <a class="da-btn pri" href="/upload">🚀 Try it — upload a sheet</a>
+        </div>
       </div>
     </div>
 
@@ -855,6 +953,7 @@ body{display:flex}
       <button class="cbtn" id="btnP" onclick="prev()" disabled>← Prev</button>
       <button class="cbtn pri" id="btnPP" onclick="togglePlay()">⏸ Pause</button>
       <button class="cbtn" id="btnN" onclick="next()">Next →</button>
+      <button class="cbtn" id="btnR" onclick="replayDemo()" title="Restart from the beginning (R)">↺ Restart</button>
     </div>
     <div class="sname" id="sname">The Brief</div>
     <div class="prog-wrap"><div class="prog-fill" id="pbar"></div></div>
@@ -1030,12 +1129,18 @@ requestAnimationFrame(fxLoop);
    SCENE CONTROLLER
 ════════════════════════════════════════════ */
 const SCENES = [
-  { id:'s1',  title:'Scene 1 — The Brief',              name:'The Brief',          dur:8000  },
-  { id:'s2',  title:'Scene 2 — The Machine',            name:'The Machine',        dur:7000  },
-  { id:'s3',  title:'Scene 3 — Upload Flow',            name:'Upload Flow',        dur:10000 },
-  { id:'s4b', title:'Scene 4 — Generation Pipeline',    name:'Behind The Scenes',  dur:17500 },
-  { id:'s4',  title:'Scene 5 — All Jobs Processing',    name:'Live Dashboard',     dur:12000 },
-  { id:'s5',  title:'Scene 6 — Celebration',            name:'Celebration',        dur:9000  },
+  { id:'s1',  title:'Scene 1 — The Brief',              name:'The Brief',          dur:8000,
+    explain:'You start with a content calendar — a spreadsheet of blog topics, keywords and dates. That sheet is the only input the tool needs.' },
+  { id:'s2',  title:'Scene 2 — The Machine',            name:'The Machine',        dur:7000,
+    explain:'Open CT Automation and choose “Upload Spreadsheet”. No writing by hand, no logging into WordPress.' },
+  { id:'s3',  title:'Scene 3 — Upload Flow',            name:'Upload Flow',        dur:10000,
+    explain:'Pick the blog, drop in the sheet, review the rows (duplicates are flagged automatically), then queue every post with one click.' },
+  { id:'s4b', title:'Scene 4 — Generation Pipeline',    name:'Behind The Scenes',  dur:17500,
+    explain:'For each row the tool loads your brand context, asks Claude for an outline, then a full article, formats it for WordPress, fetches an image, and posts it — automatically.' },
+  { id:'s4',  title:'Scene 5 — All Jobs Processing',    name:'Live Dashboard',     dur:12000,
+    explain:'Every job moves through Pending → Generating → Posting → Drafted in real time, with live cost tracking as Claude works.' },
+  { id:'s5',  title:'Scene 6 — Celebration',            name:'Celebration',        dur:9000,
+    explain:'Each topic becomes a fully-written, SEO-optimized WordPress draft — ready for a human to review and publish. Minutes, not days.' },
 ];
 
 let cur = 0, playing = true, mainTimer = null, stTimers = [];
@@ -1078,13 +1183,18 @@ function kick() {
 
 function prev() { if (cur > 0) go(cur-1); }
 function next() { if (cur < SCENES.length-1) go(cur+1); }
-function togglePlay() { playing=!playing; updateBtn(); if (playing) kick(); else clearAll(); }
+function togglePlay() {
+  // At the end, the play button restarts the whole demo
+  if (!playing && cur === SCENES.length-1) { replayDemo(); return; }
+  playing=!playing; updateBtn(); if (playing) kick(); else clearAll();
+}
 
 function updateBtn() { document.getElementById('btnPP').textContent = playing ? '⏸ Pause' : '▶ Play'; }
 
 function updateUI() {
   const s = SCENES[cur];
   document.getElementById('hdrTitle').textContent = s.title;
+  document.getElementById('hdrExplain').textContent = s.explain || '';
   document.getElementById('hdrCount').textContent = `${cur+1} / ${SCENES.length}`;
   document.getElementById('sname').textContent = s.name;
   document.getElementById('btnP').disabled = cur === 0;
@@ -1556,10 +1666,43 @@ function countUp(id, from, to, dur, fmt) {
   stTimers.push(iv);
 }
 
-/* ── Boot ── */
+/* ════════════════════════════════════════════
+   INTRO OVERLAY + KEYBOARD
+════════════════════════════════════════════ */
+function startDemo() {
+  const ov = document.getElementById('introOv');
+  ov.classList.add('hide');
+  setTimeout(() => { ov.style.display = 'none'; }, 500);
+  playing = true; updateBtn();
+  go(0);
+}
+
+function replayDemo() {
+  const ov = document.getElementById('introOv');
+  if (ov) { ov.classList.add('hide'); ov.style.display = 'none'; }
+  playing = true; updateBtn();
+  go(0);
+}
+
+function introVisible() {
+  const ov = document.getElementById('introOv');
+  return ov && !ov.classList.contains('hide');
+}
+
+document.addEventListener('keydown', (e) => {
+  if (introVisible()) {
+    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); startDemo(); }
+    return;
+  }
+  if (e.code === 'Space')           { e.preventDefault(); togglePlay(); }
+  else if (e.code === 'ArrowRight') { next(); }
+  else if (e.code === 'ArrowLeft')  { prev(); }
+  else if (e.key === 'r' || e.key === 'R') { replayDemo(); }
+});
+
+/* ── Boot ── (demo waits behind the intro overlay until the viewer clicks Start) ── */
 updateUI();
-runAnim(0);
-kick();
+playing = false; updateBtn();
 </script>
 </body>
 </html>

@@ -251,11 +251,11 @@ Produce exactly 3 distinct CTAs that drive business and generate qualified leads
 - Also classify the article into ONE cta_category from this exact list (pick the closest fit): "ai", "cloud", "digital_transformation", "data", "technology_consulting", "digital_experience", or "default" if none clearly fits.
 
 ## FEATURED IMAGE
-Write a short image_prompt (1-2 sentences) describing a photorealistic dark-tech illustration for this article.
-- Style: dark cinematic 3D digital illustration, deep navy background, dramatic teal and blue accent lighting, glowing holographic elements, photorealistic render quality
-- Subject: 2-4 specific visual elements that represent THIS article topic (e.g. server racks, shields, circuit patterns, cloud nodes)
-- Keep the upper-left corner visually calm with no bright highlights or faces (reserved for logo overlay)
-- Absolutely no text, words, labels, or captions anywhere in the image
+Write a short image_prompt (max 60 words, first clause only) describing the article subject for image generation.
+- Style: photorealistic 3D render, bright white background, soft studio lighting, modern tech objects
+- Subject: 2-3 specific visual elements that represent THIS article topic (e.g. floating server, shield, cloud nodes)
+- Keep the upper-left corner visually calm (reserved for logo overlay)
+- No text, words, labels, or captions anywhere in the image
 
 ## CRITICAL OUTPUT FORMAT
 You MUST respond with ONLY a single valid JSON object. No markdown fences, no commentary, no text before or after. The exact format:

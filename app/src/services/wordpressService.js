@@ -10,11 +10,6 @@ const FormData = require('form-data');
 const imageService = require('./imageService');
 const ctaService = require('./ctaService');
 
-// Resolved once at module load — avoids repeated fs.existsSync on every browser launch
-const SYSTEM_CHROME = '/usr/bin/google-chrome';
-const CHROME_EXECUTABLE = process.platform === 'linux' && fs.existsSync(SYSTEM_CHROME)
-  ? SYSTEM_CHROME
-  : undefined;
 
 /**
  * Posts a blog draft to WordPress using the configured method.
@@ -118,11 +113,14 @@ async function postViaRestApi(config, content, rowData, onProgress) {
     if (onProgress) onProgress(`Featured image skipped: ${imgErr.message}`);
   }
 
-  // Set the featured image alt text (Rank Math: "focus keyword in image alt")
-  if (featuredMediaId && (content.image_alt || rowData.primary_keyword)) {
+  // Set the featured image alt text and title on the media attachment
+  if (featuredMediaId) {
     try {
       await axios.post(`${apiBase}/media/${featuredMediaId}`,
-        { alt_text: content.image_alt || rowData.primary_keyword },
+        {
+          alt_text: content.image_alt || rowData.primary_keyword || content.title,
+          title: content.title,
+        },
         { headers, timeout: 15000 });
     } catch { /* non-fatal */ }
   }
@@ -181,10 +179,7 @@ async function postViaBrowser(config, content, rowData, onProgress) {
 
   const browser = await chromium.launch({
     headless: true,
-    // Use system-installed Chrome when Playwright's own Chromium cache is absent.
-    // Falls back to Playwright's bundled binary if the system path doesn't exist.
-    ...(CHROME_EXECUTABLE ? { executablePath: CHROME_EXECUTABLE } : {}),
-    // --no-sandbox is required on Linux when running as root/in containers
+    executablePath: '/usr/bin/google-chrome',
     args: process.platform === 'linux' ? ['--no-sandbox', '--disable-setuid-sandbox'] : [],
   });
 
@@ -619,7 +614,7 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
   try {
     const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content);
     imageBase64 = img.buffer.toString('base64');
-    imageFilename = img.path.split('/').pop();
+    imageFilename = `${slugify(content.title)}.webp`;
     imageSource = img.source || '';
     fs.unlink(img.path, () => {});
     if (onProgress) onProgress(`Featured image ready: ${imageSource} (${Math.round(img.size / 1024)}KB)`);
@@ -1023,6 +1018,20 @@ async function setFeaturedImage(page, content, rowData, onProgress) {
     if (await fileInput.count()) {
       await fileInput.setInputFiles(tmpPath);
       await page.waitForTimeout(3000); // Wait for upload to complete
+
+      // Fill alt text and title fields in the media uploader before confirming
+      const imageAlt = content.image_alt || rowData.primary_keyword || content.title;
+      const imageTitle = content.title;
+      try {
+        const altField = page.locator('.setting[data-setting="alt"] input, input[id*="alt-text"], input[placeholder*="alt"]').first();
+        if (await altField.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await altField.fill(imageAlt);
+        }
+        const titleField = page.locator('.setting[data-setting="title"] input, input[id*="attachment-details-title"]').first();
+        if (await titleField.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await titleField.fill(imageTitle);
+        }
+      } catch { /* non-fatal */ }
 
       // Click "Set featured image" confirmation button in media dialog
       const confirmBtn = page.locator('button:has-text("Set featured image")').last();

@@ -2,10 +2,11 @@
  * Featured image service.
  *
  * Priority chain:
- *   1. Pollinations.ai — free AI image generation (Flux model), NO API key needed
- *   2. Pexels          — if PEXELS_API_KEY set
- *   3. Unsplash        — if UNSPLASH_ACCESS_KEY set
- *   4. SVG gradient    — always works, zero-dep fallback
+ *   1. Hugging Face    — FLUX.1-schnell via HF Inference API (requires HF_API_TOKEN)
+ *   2. Pollinations.ai — free AI image generation (Flux model), NO API key needed
+ *   3. Pexels          — if PEXELS_API_KEY set
+ *   4. Unsplash        — if UNSPLASH_ACCESS_KEY set
+ *   5. SVG gradient    — always works, zero-dep fallback
  *
  * After any source succeeds, the blog logo is composited top-left. By default it
  * sits on a dark navy semi-transparent rounded backing so logos are readable on
@@ -132,7 +133,118 @@ function wrapText(text, maxChars) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Source 1 — Pollinations.ai (free AI image generation, no API key required)
+// Source 1 — Hugging Face FLUX.1-schnell (requires HF_API_TOKEN in .env)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Generate a blog featured image using Hugging Face FLUX.1-schnell.
+ *
+ * Endpoint: POST https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell
+ * Requires: HF_API_TOKEN env var (free HF account token)
+ * Native size: 1216×640 (exact 1.905:1 = same ratio as 1200×630 → pure downscale, no crop)
+ *
+ * Returns a 1200×630 WebP Buffer, or null on failure / missing token.
+ */
+async function fetchHuggingFaceImage(imagePrompt, keyword) {
+  const token = process.env.HF_API_TOKEN;
+  if (!token) return null;
+
+  try {
+    // Use Claude's generated image_prompt directly — it already contains specific
+    // visual elements for this article (e.g. "floating server rack, shield, cloud nodes").
+    // Fall back to keyword only when no prompt was generated.
+    const subjectDesc = (imagePrompt && imagePrompt.trim().length > 10)
+      ? imagePrompt.trim().replace(/[^\w\s,.()\-:]/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200)
+      : `${(keyword || 'technology')} concept, photorealistic 3D render, modern tech objects`;
+
+    // Rotate through light accents to vary the prompt text on every call.
+    // HF router caches by prompt hash and may ignore the seed parameter,
+    // so varying the text itself is the only reliable way to get a different image.
+    const ACCENTS = [
+      'with subtle blue ambient glow',
+      'with soft cyan rim lighting',
+      'with warm golden accent light',
+      'with violet purple highlight',
+      'with emerald green accent',
+      'with cool silver metallic sheen',
+    ];
+    const accent = ACCENTS[Math.floor(Math.random() * ACCENTS.length)];
+
+    const fullPrompt = [
+      subjectDesc,
+      accent,
+      'pure white infinite background no room no walls no ceiling no floor lines',
+      'professional soft-box product lighting',
+      'masterpiece 8K UHD ultra sharp crisp details vivid colors',
+      'f22 pan focus everything in focus no blur no bokeh no depth of field',
+      'correct proportions no distortion no fisheye no wide-angle',
+      'no text no letters no watermarks no captions',
+    ].join(', ');
+
+    const seed = Math.floor(Math.random() * 2147483647);
+    const body = JSON.stringify({
+      inputs: fullPrompt,
+      parameters: {
+        width: 1216,
+        height: 640,
+        num_inference_steps: 4,
+        guidance_scale: 3.5,
+        seed,
+      },
+    });
+
+    console.log('[ImageService] Hugging Face FLUX.1-schnell generating image (1216×640)...');
+
+    const rawBuffer = await new Promise((resolve) => {
+      const options = {
+        hostname: 'router.huggingface.co',
+        path: '/hf-inference/models/black-forest-labs/FLUX.1-schnell',
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      };
+      const req = https.request(options, (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          return resolve(null);
+        }
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', () => resolve(null));
+      });
+      req.on('error', () => resolve(null));
+      req.setTimeout(120000, () => { req.destroy(); resolve(null); });
+      req.write(body);
+      req.end();
+    });
+
+    if (!rawBuffer || rawBuffer.length < 20000) {
+      console.warn('[ImageService] HF returned empty/tiny response');
+      return null;
+    }
+
+    const sharp = require('sharp');
+    const buffer = await sharp(rawBuffer)
+      .resize(1200, 630, { fit: 'cover', position: 'centre', kernel: 'lanczos3' })
+      .sharpen({ sigma: 1.2, m1: 1.5, m2: 6.0 })
+      .webp({ quality: 95, effort: 6 })
+      .toBuffer();
+
+    console.log(`[ImageService] HF FLUX image: ${Math.round(buffer.length / 1024)}KB`);
+    return buffer;
+
+  } catch (err) {
+    console.warn('[ImageService] HF image gen failed:', err.message);
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Source 2 — Pollinations.ai (free AI image generation, no API key required)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -156,7 +268,21 @@ function wrapText(text, maxChars) {
 async function fetchPollinationsImage(imagePrompt, opts = {}) {
   const { width = 1200, height = 630, bright = false } = opts;
   try {
-    const topic = (imagePrompt || 'professional technology concept').substring(0, 800);
+    // Use Claude's generated image_prompt directly — it already contains specific
+    // visual elements for this article. Fall back to keyword when no prompt given.
+    const subjectDesc = (imagePrompt && imagePrompt.trim().length > 10)
+      ? imagePrompt.trim().replace(/[^\w\s,.()\-:]/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200)
+      : `professional technology concept, photorealistic 3D render, modern tech objects`;
+
+    const ACCENTS = [
+      'with subtle blue ambient glow',
+      'with soft cyan rim lighting',
+      'with warm golden accent light',
+      'with violet purple highlight',
+      'with emerald green accent',
+      'with cool silver metallic sheen',
+    ];
+    const accent = ACCENTS[Math.floor(Math.random() * ACCENTS.length)];
 
     // Build a style-augmented prompt: preserve the subject from Claude's image_prompt
     // and append style directives. ViitorCloud uses a bright, clean, airy aesthetic;
@@ -191,17 +317,16 @@ async function fetchPollinationsImage(imagePrompt, opts = {}) {
     // in the instruction don't get rendered as on-image text).
     const VC_INSTRUCTION = 'based on the blog content, create an image of size 1520 x 1008. Do not add text into it';
     const promptParts = bright
-      ? [topic, VC_INSTRUCTION, ...styleDirectives]
-      : [topic, ...styleDirectives];
+      ? [subjectDesc, VC_INSTRUCTION, ...styleDirectives]
+      : [subjectDesc, ...styleDirectives];
     const fullPrompt = promptParts.join(', ');
 
     const encoded = encodeURIComponent(fullPrompt);
-    // seed makes each article get a unique image; nologo removes Pollinations watermark
     const seed = Math.floor(Math.random() * 9999999);
     const url = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&nologo=true&model=flux&seed=${seed}`;
 
-    console.log('[ImageService] Pollinations.ai generating image (Flux)...');
-    const rawBuffer = await downloadImage(url, 90000);  // up to 90s for generation
+    console.log('[ImageService] Pollinations.ai generating image (Flux 1440×756)...');
+    const rawBuffer = await downloadImage(url, 120000);
     if (!rawBuffer || rawBuffer.length < 20000) {
       console.warn('[ImageService] Pollinations returned empty/tiny response');
       return null;
@@ -219,10 +344,6 @@ async function fetchPollinationsImage(imagePrompt, opts = {}) {
     // Sharper for the "clean/clear" look the brand wants (counters free-tier upscale softness)
     pipeline = pipeline.sharpen({ sigma: bright ? 1.3 : 1 });
     let buffer = await pipeline.webp({ quality: 82 }).toBuffer();
-
-    if (buffer.length > 100 * 1024) {
-      buffer = await sharp(buffer).webp({ quality: 60 }).toBuffer();
-    }
 
     console.log(`[ImageService] Pollinations image: ${buffer.length} bytes`);
     return buffer;
