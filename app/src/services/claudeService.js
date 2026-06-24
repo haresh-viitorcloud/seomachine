@@ -593,8 +593,13 @@ function parseGeneratedContent(rawText, row) {
       banner_highlight: typeof parsed.banner_highlight === 'string' ? parsed.banner_highlight.trim() : '',
       banner_subhead: typeof parsed.banner_subhead === 'string' ? parsed.banner_subhead.trim() : '',
       banner_tag: typeof parsed.banner_tag === 'string' ? parsed.banner_tag.trim() : '',
+      banner_card_header: typeof parsed.banner_card_header === 'string' ? parsed.banner_card_header.trim() : '',
+      banner_footer: typeof parsed.banner_footer === 'string' ? parsed.banner_footer.trim() : '',
+      banner_cta: typeof parsed.banner_cta === 'string' ? parsed.banner_cta.trim() : '',
       banner_bullets: Array.isArray(parsed.banner_bullets)
-        ? parsed.banner_bullets.map(s => String(s).trim()).filter(Boolean).slice(0, 6)
+        ? parsed.banner_bullets.map(b => (b && typeof b === 'object')
+            ? { term: String(b.term || '').trim(), desc: String(b.desc || '').trim() }
+            : String(b).trim()).filter(Boolean).slice(0, 6)
         : [],
       tags: Array.isArray(parsed.tags) ? parsed.tags : [],
       faq: Array.isArray(parsed.faq) ? parsed.faq : [],

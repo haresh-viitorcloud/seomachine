@@ -1059,10 +1059,23 @@ function extractH2Bullets(html) {
   return out;
 }
 
+// Normalize one bullet into { term, desc }. Accepts {term,desc}, "Term — desc"
+// strings (em/en/hyphen dash with spaces), or a plain phrase (term left empty).
+function normalizeBullet(b) {
+  if (b && typeof b === 'object') return { term: String(b.term || '').trim(), desc: String(b.desc || '').trim() };
+  const s = String(b == null ? '' : b).replace(/\s+/g, ' ').trim();
+  const parts = s.split(/\s+[—–-]\s+/);
+  if (parts.length >= 2) return { term: parts[0].trim(), desc: parts.slice(1).join(' - ').trim() };
+  return { term: '', desc: s };
+}
+
 // Build banner data from parsed content + blog, preferring model-supplied banner_*.
 function buildBannerData(content = {}, blog = {}, theme) {
-  const title = content.banner_headline || content.title || '';
-  const headlineLines = wrapHeadline(title);
+  // Headline: explicit line breaks in banner_headline win; else wrap the title.
+  const rawHeadline = content.banner_headline || content.title || '';
+  const headlineLines = rawHeadline.includes('\n')
+    ? rawHeadline.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 3)
+    : wrapHeadline(rawHeadline);
 
   // Highlight the line matching banner_highlight (or the middle line, as in the reference).
   let highlightLine = Math.min(1, Math.max(0, headlineLines.length - 1));
@@ -1075,58 +1088,81 @@ function buildBannerData(content = {}, blog = {}, theme) {
   // Subhead: model banner_subhead, else first sentence of meta_description.
   let subhead = content.banner_subhead || '';
   if (!subhead && content.meta_description) subhead = String(content.meta_description).split(/(?<=[.!?])\s/)[0];
-  subhead = subhead.length > 78 ? subhead.slice(0, 75).trim() + '…' : subhead;
+  subhead = subhead.length > 84 ? subhead.slice(0, 81).trim() + '…' : subhead;
 
   // Bullets: model banner_bullets → blog default product list → article H2s.
-  let bullets = Array.isArray(content.banner_bullets) ? content.banner_bullets.filter(Boolean) : [];
-  if (bullets.length < 3 && theme.defaultBullets) bullets = theme.defaultBullets;
-  if (bullets.length < 3) bullets = extractH2Bullets(content.content);
-  bullets = bullets.map(b => String(b).replace(/\s+/g, ' ').trim()).filter(Boolean)
-    .map(b => (b.length > 34 ? b.slice(0, 33).trim() + '…' : b)).slice(0, 6);
+  let raw = Array.isArray(content.banner_bullets) ? content.banner_bullets.filter(Boolean) : [];
+  if (raw.length < 3 && theme.defaultBullets) raw = theme.defaultBullets;
+  if (raw.length < 3) raw = extractH2Bullets(content.content);
+  const bullets = raw.slice(0, 6).map(normalizeBullet).map(b => ({
+    term: b.term.length > 20 ? b.term.slice(0, 19).trim() + '…' : b.term,
+    desc: b.desc.length > 40 ? b.desc.slice(0, 39).trim() + '…' : b.desc,
+  }));
 
   return {
     headlineLines,
     highlightLine,
     subhead,
-    cta: theme.cta,
-    cardHeader: theme.cardHeader,
+    cta: content.banner_cta || theme.cta,
+    cardHeader: content.banner_card_header || theme.cardHeader,
     tag: content.banner_tag || theme.defaultTag || '',
     bullets,
-    footer: theme.footer,
+    footer: content.banner_footer || '',   // rich check-style footer (e.g. "Lead · rest")
+    footerDefault: theme.footer || '',     // fallback badge-style footer
     domain: blog.domain || '',
   };
 }
 
 function renderBannerSvg(d, theme) {
-  const W = 1200, H = 630;
-  const C = { bg: '#F7F5F2', card: '#FBFAF8', border: '#E8E2D8', dark: '#1A1A1A', grey: '#6F6B66', greyLt: '#9A958E', accent: theme.accent };
+  const W = 1200, H = 630, NB = ' ';
+  const C = { bg: '#F7F5F2', card: '#FBFAF8', border: '#E8E2D8', dark: '#1A1A1A', grey: '#6F6B66', greyLt: '#9A958E', desc: '#5C5853', accent: theme.accent };
   const LX = 72, cardX = 628, cardY = 96, cardW = 508, cardH = 438;
-  const inX = cardX + 36, inR = cardX + cardW - 36;
+  const inX = cardX + 36, inR = cardX + cardW - 36, r = 11;
 
-  // Auto-fit the headline so the longest line never overflows the left column (~470px).
+  // Auto-fit the headline so the longest line never overflows the left column.
   const maxLen = Math.max(1, ...d.headlineLines.map(l => l.length));
-  const hlSize = Math.max(30, Math.min(54, Math.round(470 / (0.58 * maxLen))));
-  const hlStep = Math.round(hlSize * 1.16);
-  const hlStart = 224;
+  const hlSize = Math.max(34, Math.min(58, Math.round(500 / (0.56 * maxLen))));
+  const hlStep = Math.round(hlSize * 1.12);
+  const hlStart = 214;
   const headline = d.headlineLines.map((ln, i) =>
-    `<text x="${LX}" y="${hlStart + i * hlStep}" font-family="Arial, Helvetica, sans-serif" font-size="${hlSize}" font-weight="700" fill="${i === d.highlightLine ? C.accent : C.dark}">${escSvg(ln)}</text>`).join('');
+    `<text x="${LX}" y="${hlStart + i * hlStep}" font-family="Arial, Helvetica, sans-serif" font-size="${hlSize}" font-weight="800" letter-spacing="-1" fill="${i === d.highlightLine ? C.accent : C.dark}">${escSvg(ln)}</text>`).join('');
+  const subY = hlStart + d.headlineLines.length * hlStep + 18;
+  const ctaY = subY + 36;
 
-  const bulStart = 214, bulStep = 45;
+  const bulStart = 212, bulStep = 45;
   const n = Math.min(d.bullets.length, 6);
   const bullets = d.bullets.slice(0, 6).map((b, i) => {
-    const y = bulStart + i * bulStep, r = 11;
+    const y = bulStart + i * bulStep;
+    const txt = b.term
+      ? `<tspan font-weight="700" fill="${C.dark}">${escSvg(b.term)}</tspan><tspan fill="${C.desc}">${NB}—${NB}${escSvg(b.desc)}</tspan>`
+      : `<tspan fill="#2A2A2A">${escSvg(b.desc)}</tspan>`;
     return `<circle cx="${inX + r}" cy="${y}" r="${r}" fill="${C.accent}"/>` +
       `<path d="M ${inX + r - 5} ${y} l 3.2 3.4 l 6.2 -6.6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` +
-      `<text x="${inX + 2 * r + 12}" y="${y + 5.5}" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#2A2A2A">${escSvg(b)}</text>`;
+      `<text x="${inX + 2 * r + 13}" y="${y + 5.5}" font-family="Arial, Helvetica, sans-serif" font-size="16.5">${txt}</text>`;
   }).join('');
   const dY2 = bulStart + n * bulStep - 12;
+
+  // Footer: rich check-style if banner_footer given, else default badge style.
+  let footerSvg;
+  if (d.footer) {
+    const parts = d.footer.split(/\s*[·|]\s*/);
+    const lead = parts[0] || '';
+    const rest = parts.length > 1 ? `${NB}·${NB}${parts.slice(1).join(' · ')}` : '';
+    footerSvg = `<circle cx="${inX + r}" cy="${dY2 + 30}" r="${r}" fill="${C.accent}"/>` +
+      `<path d="M ${inX + r - 5} ${dY2 + 30} l 3.2 3.4 l 6.2 -6.6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `<text x="${inX + 2 * r + 13}" y="${dY2 + 35}" font-family="Arial, Helvetica, sans-serif" font-size="14"><tspan font-weight="700" fill="${C.dark}">${escSvg(lead)}</tspan><tspan fill="${C.desc}">${escSvg(rest)}</tspan></text>`;
+  } else {
+    footerSvg = `<circle cx="${inX + 11}" cy="${dY2 + 30}" r="11" fill="none" stroke="${C.accent}" stroke-width="1.8"/>` +
+      `<text x="${inX + 11}" y="${dY2 + 34}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="${C.accent}">10</text>` +
+      `<text x="${inX + 34}" y="${dY2 + 35}" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="${C.dark}">${escSvg(d.footerDefault)}</text>`;
+  }
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <rect width="${W}" height="${H}" fill="${C.bg}"/>
   ${headline}
-  <text x="${LX}" y="428" font-family="Arial, Helvetica, sans-serif" font-size="19" fill="${C.grey}">${escSvg(d.subhead)}</text>
-  <rect x="${LX}" y="468" width="232" height="56" rx="28" fill="${C.dark}"/>
-  <text x="${LX + 116}" y="503" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#fff">${escSvg(d.cta)} →</text>
+  <text x="${LX}" y="${subY}" font-family="Arial, Helvetica, sans-serif" font-size="19" fill="${C.grey}">${escSvg(d.subhead)}</text>
+  <rect x="${LX}" y="${ctaY}" width="224" height="54" rx="27" fill="${C.dark}"/>
+  <text x="${LX + 112}" y="${ctaY + 34}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#fff">${escSvg(d.cta)} →</text>
   <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="18" fill="${C.card}" stroke="${C.border}" stroke-width="1.5"/>
   <path d="M ${inX + 6} 140 l 3 8 l 8 3 l -8 3 l -3 8 l -3 -8 l -8 -3 l 8 -3 z" fill="${C.accent}"/>
   <text x="${inX + 26}" y="156" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" fill="${C.dark}">${escSvg(d.cardHeader)}</text>
@@ -1134,9 +1170,7 @@ function renderBannerSvg(d, theme) {
   <line x1="${inX}" y1="180" x2="${inR}" y2="180" stroke="${C.border}" stroke-width="1.5"/>
   ${bullets}
   <line x1="${inX}" y1="${dY2}" x2="${inR}" y2="${dY2}" stroke="${C.border}" stroke-width="1.5"/>
-  <circle cx="${inX + 11}" cy="${dY2 + 30}" r="11" fill="none" stroke="${C.accent}" stroke-width="1.8"/>
-  <text x="${inX + 11}" y="${dY2 + 34}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="${C.accent}">10</text>
-  <text x="${inX + 34}" y="${dY2 + 35}" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="${C.dark}">${escSvg(d.footer)}</text>
+  ${footerSvg}
   ${d.domain ? `<text x="${W - 64}" y="600" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="${C.greyLt}">${escSvg(d.domain)}</text>` : ''}
 </svg>`;
 }

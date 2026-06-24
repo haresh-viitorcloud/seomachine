@@ -51,6 +51,12 @@ async function processJob(job) {
         catch { return { cta_category: 'default', ctas: [] }; }
       })(),
     };
+    // Merge stored banner data (banner blogs, e.g. LaraCopilot) so the code-rendered
+    // banner reproduces the model-authored design on re-posts.
+    try {
+      const bn = JSON.parse(job.generated_banner || 'null');
+      if (bn && typeof bn === 'object') Object.assign(generatedContent, bn);
+    } catch { /* ignore malformed banner json */ }
     queueService.addLog(job.id, 'info', `Using cached content for: ${job.title} (${generatedContent.content.length} chars)`);
   } else {
     const testMode = queueService.isTestMode();
@@ -99,6 +105,20 @@ async function processJob(job) {
         generated_image_alt: generatedContent.image_alt || '',
         generated_category: generatedContent.category || '',
         generated_ctas: { category: generatedContent.cta_category || 'default', items: generatedContent.ctas || [] },
+        // Persist banner fields (banner blogs) so re-posts reproduce the model-authored
+        // banner. Only stored when the model actually supplied banner data.
+        ...((generatedContent.banner_headline || (Array.isArray(generatedContent.banner_bullets) && generatedContent.banner_bullets.length)) ? {
+          generated_banner: {
+            banner_headline: generatedContent.banner_headline || '',
+            banner_highlight: generatedContent.banner_highlight || '',
+            banner_subhead: generatedContent.banner_subhead || '',
+            banner_tag: generatedContent.banner_tag || '',
+            banner_card_header: generatedContent.banner_card_header || '',
+            banner_footer: generatedContent.banner_footer || '',
+            banner_cta: generatedContent.banner_cta || '',
+            banner_bullets: generatedContent.banner_bullets || [],
+          },
+        } : {}),
         cost_usd: costUsd,
         tokens_in: tokensIn,
         tokens_out: tokensOut,
