@@ -177,11 +177,22 @@ async function postViaBrowser(config, content, rowData, onProgress) {
 
   if (onProgress) onProgress('Launching browser for WordPress automation...');
 
-  const browser = await chromium.launch({
+  // Browser executable resolution (cross-platform):
+  //   1. PLAYWRIGHT_CHROMIUM_PATH env override, if set (any OS).
+  //   2. Linux servers: system Chrome at /usr/bin/google-chrome (existing deploy behaviour).
+  //   3. Otherwise (Windows/macOS): let Playwright use its bundled Chromium
+  //      (installed by `npx playwright install chromium`).
+  // Hardcoding the Linux path on Windows is what caused
+  // "Failed to launch chromium because executable doesn't exist at /usr/bin/google-chrome".
+  const launchOptions = {
     headless: true,
-    executablePath: '/usr/bin/google-chrome',
     args: process.platform === 'linux' ? ['--no-sandbox', '--disable-setuid-sandbox'] : [],
-  });
+  };
+  const chromePath = process.env.PLAYWRIGHT_CHROMIUM_PATH
+    || (process.platform === 'linux' ? '/usr/bin/google-chrome' : null);
+  if (chromePath) launchOptions.executablePath = chromePath;
+
+  const browser = await chromium.launch(launchOptions);
 
   try {
     const context = await browser.newContext({
