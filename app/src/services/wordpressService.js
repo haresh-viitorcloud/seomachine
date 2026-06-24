@@ -73,7 +73,7 @@ async function postViaRestApi(config, content, rowData, onProgress) {
 
   // Resolve category IDs from sheet data (theme / target_industry) + fallback to config default
   if (onProgress) onProgress('Resolving categories, tags and industries...');
-  const categoryIds = await resolveCategories(apiBase, headers, rowData, config);
+  const categoryIds = await resolveCategories(apiBase, headers, rowData, config, content);
 
   // Resolve or create tags from both sheet secondary_keywords + generated tags
   const tagIds = await resolveTags(apiBase, headers, content, rowData, taxBases.tag);
@@ -91,7 +91,7 @@ async function postViaRestApi(config, content, rowData, onProgress) {
   let imageSource = '';
   try {
     if (onProgress) onProgress('Generating featured image...');
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config);
+    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content);
     imageSource = img.source || '';
     if (onProgress) onProgress(`Featured image created via ${imageSource} (${Math.round(img.size / 1024)}KB) — uploading...`);
 
@@ -506,35 +506,56 @@ async function writeSeoMetaLast(page, postId, content, rowData, config, onProgre
 async function fillBlogFaqAcf(page, items, onProgress) {
   if (!items || !items.length) return false;
   try {
-    const repeater = page.locator('.acf-field[data-name="faq"]').first();
-    if (!(await repeater.count())) {
+    // Supported theme FAQ field schemas (ViitorCloud-family vs LaraCopilot). The
+    // first whose repeater is present on the page wins.
+    const SCHEMAS = [
+      { repeater: 'faq',           sectionTitle: 'main_heading',           headingLevel: 'choose_heading', question: 'question',  answer: 'answer' },
+      { repeater: 'add_blog_faqs', sectionTitle: 'blog_faq_section_title', headingLevel: null,             question: 'faq_title', answer: 'faq_description' },
+    ];
+    let schema = null, repeater = null;
+    for (const s of SCHEMAS) {
+      const loc = page.locator(`.acf-field[data-name="${s.repeater}"]`).first();
+      if (await loc.count()) { schema = s; repeater = loc; break; }
+    }
+    if (!schema) {
       if (onProgress) onProgress('Blog FAQs ACF field not found — leaving FAQ inline');
       return false;
     }
     // Expand the metabox if collapsed
-    const postbox = page.locator('.postbox:has(.acf-field[data-name="faq"])').first();
+    const postbox = page.locator(`.postbox:has(.acf-field[data-name="${schema.repeater}"])`).first();
     if (await postbox.count() && (await postbox.getAttribute('class') || '').includes('closed')) {
       await postbox.locator('.hndle, .postbox-header').first().click().catch(() => {});
       await page.waitForTimeout(300);
     }
     await repeater.scrollIntoViewIfNeeded().catch(() => {});
 
-    // Heading level + main heading
-    const headingSel = page.locator('.acf-field[data-name="choose_heading"] select').first();
-    if (await headingSel.count()) await headingSel.selectOption('h2').catch(() => {});
-    const mainInput = page.locator('.acf-field[data-name="main_heading"] input').first();
+    // Heading level (only if this theme has it) + section title
+    if (schema.headingLevel) {
+      const headingSel = page.locator(`.acf-field[data-name="${schema.headingLevel}"] select`).first();
+      if (await headingSel.count()) await headingSel.selectOption('h2').catch(() => {});
+    }
+    const mainInput = page.locator(`.acf-field[data-name="${schema.sectionTitle}"] input`).first();
     if (await mainInput.count()) await mainInput.fill('Frequently Asked Questions').catch(() => {});
 
     const rowsLoc = () => repeater.locator('.acf-row:not(.acf-clone)');
-    // The real "Add Row" button (not the hidden per-row .acf-icon.-plus in the clone template)
-    const addBtn = repeater.locator('a.acf-repeater-add-row[data-event="add-row"]').first();
+    const repSel = `.acf-field[data-name="${schema.repeater}"]`;
 
-    // Add rows until there are at least as many as we have items. We fill in place rather
-    // than clear-then-add, so the hover-only remove control is only touched to trim extras.
+    // Add rows via a JS-dispatched click on ACF's "Add Row" button. A native click
+    // fires ACF's jQuery handler and is immune to the viewport / Gutenberg sticky-bar /
+    // overlay actionability failures that made Playwright's .click() time out
+    // intermittently (the cause of FAQs falling back to inline on some posts).
     let addGuard = 0;
-    while ((await rowsLoc().count()) < items.length && addGuard++ < items.length + 3) {
-      await addBtn.click({ timeout: 8000 });
-      await page.waitForTimeout(250);
+    while ((await rowsLoc().count()) < items.length && addGuard++ < items.length + 5) {
+      await page.evaluate((sel) => {
+        const rep = document.querySelector(sel);
+        const btn = rep && rep.querySelector('a.acf-button.acf-repeater-add-row[data-event="add-row"], a.acf-repeater-add-row[data-event="add-row"], a.acf-button[data-event="add-row"]');
+        if (btn) btn.click();
+      }, repSel);
+      await page.waitForTimeout(300);
+    }
+    if ((await rowsLoc().count()) < items.length) {
+      if (onProgress) onProgress('Blog FAQs: could not add enough rows — leaving FAQ inline');
+      return false;
     }
 
     // Best-effort trim of extra rows (bounded, force-click, stops on no-progress → never hangs).
@@ -553,13 +574,23 @@ async function fillBlogFaqAcf(page, items, onProgress) {
       } catch { break; }
     }
 
-    // Fill each row in place (overwrites any previous values).
+    // Fill each row's question/answer via JS (set value + fire input/change so ACF
+    // persists it on save). Robust against the same actionability issues as add-row.
     for (let i = 0; i < items.length; i++) {
-      const row = rowsLoc().nth(i);
-      const qInput = row.locator('.acf-field[data-name="question"] input').first();
-      const aInput = row.locator('.acf-field[data-name="answer"] textarea').first();
-      if (await qInput.count()) await qInput.fill(items[i].question, { timeout: 8000 });
-      if (await aInput.count()) await aInput.fill(items[i].answer, { timeout: 8000 });
+      await page.evaluate(({ sel, idx, q, a, qName, aName }) => {
+        const rep = document.querySelector(sel);
+        if (!rep) return;
+        const row = rep.querySelectorAll('.acf-row:not(.acf-clone)')[idx];
+        if (!row) return;
+        const setVal = (el, val) => {
+          if (!el) return;
+          el.value = val;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        setVal(row.querySelector(`.acf-field[data-name="${qName}"] input, .acf-field[data-name="${qName}"] textarea`), q);
+        setVal(row.querySelector(`.acf-field[data-name="${aName}"] textarea, .acf-field[data-name="${aName}"] input`), a);
+      }, { sel: repSel, idx: i, q: items[i].question, a: items[i].answer, qName: schema.question, aName: schema.answer });
     }
     if (onProgress) onProgress(`Blog FAQs populated: ${items.length} Q&A row${items.length !== 1 ? 's' : ''}`);
     return true;
@@ -581,7 +612,7 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
   let imageFilename = 'featured.webp';
   let imageSource = '';
   try {
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config);
+    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content);
     imageBase64 = img.buffer.toString('base64');
     imageFilename = `${slugify(content.title)}.webp`;
     imageSource = img.source || '';
@@ -598,6 +629,9 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
   ].filter(Boolean).slice(0, 8);
 
   const categoryNames = [rowData.theme, rowData.target_industry].filter(Boolean);
+  // Fall back to the model-selected category when the sheet has no theme/industry
+  // (e.g. LaraCopilot) so the post lands in a relevant category, not Uncategorized.
+  if (!categoryNames.length && content.category) categoryNames.push(content.category);
 
   // Run all REST API operations inside the browser (uses the existing WP session)
   const result = await page.evaluate(async ({ wpUrl, postId, categoryNames, tags, industryNames, focusKeyword, metaDescription, seoTitle, slug, imageAlt, imageBase64, imageFilename }) => {
@@ -940,12 +974,9 @@ async function setRankMathSeo(page, focusKeyword, metaDescription, onProgress) {
 async function setFeaturedImage(page, content, rowData, onProgress) {
   let tmpPath = null;
   try {
-    // Generate the image — save with blog-title filename so WP media library shows a clean name
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, {});
-    const namedPath = path.join(require('os').tmpdir(), `${slugify(content.title)}.webp`);
-    fs.copyFileSync(img.path, namedPath);
-    fs.unlink(img.path, () => {});
-    tmpPath = namedPath;
+    // Generate the image
+    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, {}, content.content);
+    tmpPath = img.path;
     if (onProgress) onProgress(`Featured image ready: ${img.source} (${Math.round(img.size / 1024)}KB)`);
 
     // Find the Featured Image panel — try multiple approaches
@@ -1046,9 +1077,12 @@ async function fillClassicEditor(page, content, rowData, config, onProgress) {
 // REST API helpers: categories, tags, slugify
 // ─────────────────────────────────────────────────────────────
 
-async function resolveCategories(apiBase, headers, rowData, config) {
+async function resolveCategories(apiBase, headers, rowData, config, content = {}) {
   const defaultId = parseInt(config.wp_category) || 1;
   const candidates = [rowData.theme, rowData.target_industry].filter(Boolean);
+  // Fall back to the model-selected category when the sheet has no theme/industry
+  // (e.g. LaraCopilot) so the post lands in a relevant category, not Uncategorized.
+  if (!candidates.length && content.category) candidates.push(content.category);
   const ids = new Set([defaultId]);
 
   for (const name of candidates) {

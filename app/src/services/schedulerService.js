@@ -45,6 +45,7 @@ async function processJob(job) {
       seo_title: job.generated_seo_title || job.generated_title || job.title,
       slug: job.generated_slug || '',
       image_alt: job.generated_image_alt || '',
+      category: job.generated_category || '',
       ...(() => {
         try { const c = JSON.parse(job.generated_ctas || '{}'); return { cta_category: c.category || 'default', ctas: c.items || [] }; }
         catch { return { cta_category: 'default', ctas: [] }; }
@@ -96,6 +97,7 @@ async function processJob(job) {
         generated_seo_title: generatedContent.seo_title || '',
         generated_slug: generatedContent.slug || '',
         generated_image_alt: generatedContent.image_alt || '',
+        generated_category: generatedContent.category || '',
         generated_ctas: { category: generatedContent.cta_category || 'default', items: generatedContent.ctas || [] },
         cost_usd: costUsd,
         tokens_in: tokensIn,

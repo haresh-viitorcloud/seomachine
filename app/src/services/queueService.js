@@ -60,6 +60,7 @@ function updateJobStatus(id, status, extra = {}) {
   if (extra.generated_seo_title !== undefined) { fields.push('generated_seo_title = ?'); values.push(extra.generated_seo_title); }
   if (extra.generated_slug !== undefined) { fields.push('generated_slug = ?'); values.push(extra.generated_slug); }
   if (extra.generated_image_alt !== undefined) { fields.push('generated_image_alt = ?'); values.push(extra.generated_image_alt); }
+  if (extra.generated_category !== undefined) { fields.push('generated_category = ?'); values.push(extra.generated_category); }
   if (extra.generated_ctas !== undefined) { fields.push('generated_ctas = ?'); values.push(JSON.stringify(extra.generated_ctas)); }
   if (extra.wp_post_id !== undefined) { fields.push('wp_post_id = ?'); values.push(extra.wp_post_id); }
   if (extra.wp_post_url !== undefined) { fields.push('wp_post_url = ?'); values.push(extra.wp_post_url); }

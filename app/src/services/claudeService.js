@@ -589,6 +589,9 @@ function parseGeneratedContent(rawText, row) {
       image_alt: parsed.image_alt || row.primary_keyword || title,
       tags: Array.isArray(parsed.tags) ? parsed.tags : [],
       faq: Array.isArray(parsed.faq) ? parsed.faq : [],
+      // WordPress post category the model selected for this post (used at posting time
+      // when the spreadsheet has no theme/target_industry — e.g. LaraCopilot).
+      category: typeof parsed.category === 'string' ? parsed.category.trim() : '',
       cta_category: typeof parsed.cta_category === 'string' ? parsed.cta_category.trim().toLowerCase() : 'default',
       ctas: Array.isArray(parsed.ctas)
         ? parsed.ctas.slice(0, 3).map(c => ({
@@ -631,6 +634,7 @@ function parseGeneratedContent(rawText, row) {
           image_alt: extractJsonField(text, 'image_alt') || row.primary_keyword || recoveredTitle,
           tags: [row.primary_keyword].filter(Boolean),
           faq: [],
+          category: extractJsonField(text, 'category') || '',
         };
       }
     }
