@@ -578,8 +578,21 @@ function normalizeSeoTitle(seoTitle, keyword) {
 }
 
 // Keeps the meta description within Rank Math's 160-char limit, trimmed at a word boundary.
-function normalizeMeta(meta) {
+// When `keyword` is supplied, guarantees the primary keyword appears within the first 120
+// chars (Rank Math "Keyword in Meta Description" check) by prepending it if the model omitted it.
+function normalizeMeta(meta, keyword) {
   let m = String(meta || '').trim();
+  const kw = String(keyword || '').trim();
+
+  // Ensure the primary keyword is present near the start.
+  if (kw) {
+    const head = m.slice(0, 120).toLowerCase();
+    if (!head.includes(kw.toLowerCase())) {
+      const kwSentence = kw.replace(/\b\w/g, c => c.toUpperCase());
+      m = m ? `${kwSentence}: ${m}` : kwSentence;
+    }
+  }
+
   if (m.length > 160) {
     m = m.slice(0, 160);
     const sp = m.lastIndexOf(' ');
@@ -613,7 +626,7 @@ function parseGeneratedContent(rawText, row) {
       seo_title: normalizeSeoTitle(parsed.seo_title || title, row.primary_keyword),
       slug: slugifyKeyword(parsed.slug || row.primary_keyword || title),
       content: parsed.content || '',
-      meta_description: normalizeMeta(parsed.meta_description || ''),
+      meta_description: normalizeMeta(parsed.meta_description || '', row.primary_keyword),
       image_prompt: parsed.image_prompt || '',
       image_alt: parsed.image_alt || row.primary_keyword || title,
       tags: Array.isArray(parsed.tags) ? parsed.tags : [],
@@ -655,10 +668,10 @@ function parseGeneratedContent(rawText, row) {
         const recoveredTitle = extractJsonField(text, 'title') || row.title;
         return {
           title: recoveredTitle,
-          seo_title: extractJsonField(text, 'seo_title') || recoveredTitle,
+          seo_title: normalizeSeoTitle(extractJsonField(text, 'seo_title') || recoveredTitle, row.primary_keyword),
           slug: slugifyKeyword(extractJsonField(text, 'slug') || row.primary_keyword || recoveredTitle),
           content: htmlContent.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\'),
-          meta_description: extractJsonField(text, 'meta_description') || '',
+          meta_description: normalizeMeta(extractJsonField(text, 'meta_description') || '', row.primary_keyword),
           image_prompt: extractJsonField(text, 'image_prompt') || '',
           image_alt: extractJsonField(text, 'image_alt') || row.primary_keyword || recoveredTitle,
           tags: [row.primary_keyword].filter(Boolean),

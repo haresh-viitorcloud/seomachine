@@ -27,11 +27,13 @@ const APP_ROOT = path.join(__dirname, '../..');
 
 // Per-brand visual config. Detected by blog slug/name/context_path; unknown blogs
 // get a sensible dark-tech default.
+// `autoBg: true` makes Codex pick a topic-appropriate background per article instead
+// of a fixed brand colour (the real logo is still overlaid afterward — never AI-drawn).
 const BRANDS = {
   vc:          { accent: '#FFB14E', bg: 'a deep teal-to-blue gradient', dark: true,  url: 'www.viitorcloud.com' },
   lc:          { accent: '#F53003', bg: 'a clean light cream background (#F7F5F2)', dark: false, url: 'laracopilot.com' },
-  everycred:   { accent: '#1E4383', bg: 'a clean light off-white background', dark: false, url: 'everycred.com' },
-  everyticket: { accent: '#D50355', bg: 'a clean light off-white background', dark: false, url: 'everyticket.in' },
+  everycred:   { accent: '#1E4383', bg: 'a clean light off-white background', dark: false, autoBg: true, url: 'everycred.com' },
+  everyticket: { accent: '#D50355', bg: 'a clean light off-white background', dark: false, autoBg: true, url: 'everyticket.in' },
 };
 
 function brandForBlog(blog = {}) {
@@ -123,9 +125,15 @@ function codexSize(width, height) {
 
 function buildPrompt({ title, subhead, brand, w, h, saveName }) {
   const textColor = brand.dark ? 'white' : 'near-black';
+  // autoBg brands: let Codex choose a background that fits the article topic (inferred
+  // from the headline) instead of a fixed brand colour. Kept light/uncluttered so the
+  // near-black text stays legible and the real logo (composited later) reads cleanly.
+  const bgLine = brand.autoBg
+    ? `Background: automatically choose a clean, modern, professional background that visually fits the article topic (infer the subject from the headline) — a subtle gradient, soft abstract shapes, or a light topical scene. Keep it light, bright and uncluttered with generous negative space so the ${textColor} text and accents stay clearly readable; do NOT make it busy or dark. Brand accent colour: ${brand.accent}. Primary text colour: ${textColor}.`
+    : `Background: ${brand.bg}. Brand accent colour: ${brand.accent}. Primary text colour: ${textColor}.`;
   const lines = [
     `Use the imagegen skill's built-in image_gen tool to generate ONE professional B2B SaaS blog featured banner. Landscape ${w}x${h}, generous negative space.`,
-    `Background: ${brand.bg}. Brand accent colour: ${brand.accent}. Primary text colour: ${textColor}.`,
+    bgLine,
     `Headline (top-left, large, verbatim): "${title}". Accent the single most important 1-3 word phrase of the headline in ${brand.accent}; keep the rest ${textColor}.`,
     subhead ? `Subhead (smaller, ${textColor}, verbatim): "${subhead}".` : '',
     `Add a tasteful, minimal motif on the right side that fits the article topic, in ${brand.accent} and ${textColor} flat line-art.`,

@@ -103,8 +103,9 @@ async function postViaRestApi(config, content, rowData, onProgress) {
     const form = new FormData();
     // Use the in-memory buffer (saveTempImage returns it) rather than a read stream —
     // a stream 'error' event can escape this try/catch and crash the process.
+    // Image file NAME is the primary-keyword slug (SEO-friendly, matches media Title).
     form.append('file', img.buffer, {
-      filename: `${slugify(content.title)}.webp`,
+      filename: `${slugify(rowData.primary_keyword || content.title)}.webp`,
       contentType: 'image/webp',
     });
     const mediaRes = await axios.post(`${apiBase}/media`, form, {
@@ -118,11 +119,20 @@ async function postViaRestApi(config, content, rowData, onProgress) {
     if (onProgress) onProgress(`Featured image skipped: ${imgErr.message}`);
   }
 
-  // Set the featured image alt text (Rank Math: "focus keyword in image alt")
-  if (featuredMediaId && (content.image_alt || rowData.primary_keyword)) {
+  // Set the featured-image media metadata. Fixed mapping for every blog image:
+  //   Alt Text    = meta description   Title       = primary keyword
+  //   Caption     = blog title         Description = meta description
+  if (featuredMediaId) {
+    const metaDesc = content.meta_description || '';
+    const kw = rowData.primary_keyword || '';
     try {
       await axios.post(`${apiBase}/media/${featuredMediaId}`,
-        { alt_text: content.image_alt || rowData.primary_keyword },
+        {
+          alt_text:    metaDesc || content.image_alt || kw,
+          title:       kw || content.title || '',
+          caption:     content.title || '',
+          description: metaDesc,
+        },
         { headers, timeout: 15000 });
     } catch { /* non-fatal */ }
   }
@@ -475,6 +485,10 @@ async function writeSeoMetaLast(page, postId, content, rowData, config, onProgre
     seoTitle: content.seo_title || content.title || '',
     focusKeyword: rowData.primary_keyword || '',
     metaDescription: content.meta_description || '',
+    // Set the keyword-based slug HERE as well — the editor's final save (and Rank Math's own
+    // on-save) run before this and can revert the slug to the title-derived one. Writing it as
+    // the LAST REST call makes the keyword slug stick on the saved draft.
+    slug: content.slug || slugify(rowData.primary_keyword || ''),
   };
   const ok = await page.evaluate(async ({ wpUrl, postId, p }) => {
     try {
@@ -484,6 +498,7 @@ async function writeSeoMetaLast(page, postId, content, rowData, config, onProgre
         headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': nonce },
         credentials: 'same-origin',
         body: JSON.stringify({
+          ...(p.slug ? { slug: p.slug } : {}),
           meta: {
             rank_math_title: p.seoTitle,
             rank_math_focus_keyword: p.focusKeyword,
@@ -498,7 +513,7 @@ async function writeSeoMetaLast(page, postId, content, rowData, config, onProgre
     } catch { return false; }
   }, { wpUrl, postId, p: payload });
   if (onProgress) onProgress(ok
-    ? `SEO meta finalized (focus keyword: "${payload.focusKeyword}")`
+    ? `SEO meta finalized (focus keyword: "${payload.focusKeyword}", slug: "${payload.slug}")`
     : 'SEO meta finalize skipped');
 }
 
@@ -619,7 +634,9 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
   try {
     const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content, content.meta_description);
     imageBase64 = img.buffer.toString('base64');
-    imageFilename = img.path.split('/').pop();
+    // Image file NAME is the primary-keyword slug (SEO-friendly, matches media Title),
+    // not the throwaway ct-image-<timestamp> temp basename.
+    imageFilename = `${slugify(rowData.primary_keyword || content.title || 'featured')}.webp`;
     imageSource = img.source || '';
     fs.unlink(img.path, () => {});
     if (onProgress) onProgress(`Featured image ready: ${imageSource} (${Math.round(img.size / 1024)}KB)`);
@@ -639,7 +656,7 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
   if (!categoryNames.length && content.category) categoryNames.push(content.category);
 
   // Run all REST API operations inside the browser (uses the existing WP session)
-  const result = await page.evaluate(async ({ wpUrl, postId, categoryNames, tags, industryNames, focusKeyword, metaDescription, seoTitle, slug, imageAlt, imageBase64, imageFilename }) => {
+  const result = await page.evaluate(async ({ wpUrl, postId, categoryNames, tags, industryNames, focusKeyword, metaDescription, seoTitle, slug, imageAlt, blogTitle, imageBase64, imageFilename }) => {
     const log = [];
     try {
       // Get nonce for REST API
@@ -729,17 +746,22 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
             const media = await mediaRes.json();
             featuredMediaId = media.id;
             log.push(`Featured image uploaded: Media ID ${featuredMediaId}`);
-            // Set alt text on the media (Rank Math: focus keyword in image alt)
-            if (imageAlt) {
-              try {
-                await fetch(`${base}/media/${featuredMediaId}`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': nonce },
-                  body: JSON.stringify({ alt_text: imageAlt }),
-                  credentials: 'same-origin',
-                });
-              } catch { /* non-fatal */ }
-            }
+            // Fixed media-metadata mapping for every blog image:
+            //   Alt Text    = meta description   Title       = primary keyword
+            //   Caption     = blog title         Description = meta description
+            try {
+              await fetch(`${base}/media/${featuredMediaId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': nonce },
+                body: JSON.stringify({
+                  alt_text:    metaDescription || imageAlt || focusKeyword || '',
+                  title:       focusKeyword || blogTitle || '',
+                  caption:     blogTitle || '',
+                  description: metaDescription || '',
+                }),
+                credentials: 'same-origin',
+              });
+            } catch { /* non-fatal */ }
           } else {
             log.push(`Image upload failed: ${mediaRes.status}`);
           }
@@ -770,7 +792,7 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
       log.push(`Error: ${e.message}`);
     }
     return log;
-  }, { wpUrl, postId, categoryNames, tags: allTags, industryNames: [rowData.target_industry].filter(Boolean), focusKeyword: rowData.primary_keyword, metaDescription: content.meta_description, seoTitle: content.seo_title || content.title, slug: content.slug || slugify(rowData.primary_keyword || ''), imageAlt: content.image_alt || rowData.primary_keyword || '', imageBase64, imageFilename });
+  }, { wpUrl, postId, categoryNames, tags: allTags, industryNames: [rowData.target_industry].filter(Boolean), focusKeyword: rowData.primary_keyword, metaDescription: content.meta_description, seoTitle: content.seo_title || content.title, slug: content.slug || slugify(rowData.primary_keyword || ''), imageAlt: content.image_alt || rowData.primary_keyword || '', blogTitle: content.title || '', imageBase64, imageFilename });
 
   // Log each result message
   if (result && Array.isArray(result)) {

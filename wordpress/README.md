@@ -1,8 +1,17 @@
 # WordPress Integration Files
 
-These files enable the SEO Machine tool to set Yoast SEO meta fields (Focus Keyphrase, SEO Title, Meta Description) via the REST API.
+These files enable the SEO Machine tool to set SEO plugin meta fields (Focus Keyword, SEO Title, Meta Description) via the REST API. WordPress core silently drops any `meta` key that isn't registered with `show_in_rest => true`, so the SEO plugin's fields must be registered for REST before the tool can write them.
 
-**Choose ONE option** - either the mu-plugin OR the functions.php snippet. They do the same thing.
+**Install the plugin that matches your site's SEO plugin:**
+
+| Your SEO plugin | Install this file |
+|---|---|
+| Yoast SEO | `seo-machine-yoast-rest.php` (or the `functions-snippet.php` equivalent) |
+| Rank Math | `seo-machine-rankmath-rest.php` |
+
+Each file is gated on its SEO plugin being active, so installing both is safe (the inactive one is a no-op). **LaraCopilot uses Rank Math, so it needs `seo-machine-rankmath-rest.php` installed** — without it, the `rank_math_title` / `rank_math_description` / `rank_math_focus_keyword` writes the tool makes are discarded and the meta title/description never appear in Rank Math.
+
+For Yoast you may instead **choose ONE option** - the mu-plugin OR the functions.php snippet. They do the same thing.
 
 ---
 
@@ -42,23 +51,19 @@ These files enable the SEO Machine tool to set Yoast SEO meta fields (Focus Keyp
 
 ## What This Code Does
 
-Registers a custom REST API field called `yoast_seo` on posts that allows reading and writing:
+**Yoast** (`seo-machine-yoast-rest.php` / snippet): registers the `_yoast_wpseo_*` meta keys for REST and a grouped `yoast_seo` field:
 
 - `focus_keyphrase` → `_yoast_wpseo_focuskw`
 - `seo_title` → `_yoast_wpseo_title`
 - `meta_description` → `_yoast_wpseo_metadesc`
 
-**API Usage:**
-```json
-POST /wp-json/wp/v2/posts/{id}
-{
-  "yoast_seo": {
-    "focus_keyphrase": "your target keyword",
-    "seo_title": "Your SEO Title | Brand",
-    "meta_description": "Your meta description here."
-  }
-}
-```
+**Rank Math** (`seo-machine-rankmath-rest.php`): registers the `rank_math_*` meta keys for REST and a grouped `rank_math_seo` field:
+
+- `focus_keyword` → `rank_math_focus_keyword`
+- `seo_title` → `rank_math_title`
+- `meta_description` → `rank_math_description`
+
+The SEO Machine tool writes the raw `meta` keys directly (e.g. `{ "meta": { "rank_math_title": "..." } }`); registering them above is what lets WordPress persist them. The URL slug is set via the post's core `slug` field, which Rank Math reads as the permalink — no extra registration needed.
 
 ---
 
