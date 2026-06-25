@@ -142,8 +142,48 @@ function runCodex(codexBin, prompt, cwd, timeoutMs) {
   });
 }
 
+// Read the first bytes of a file (for magic-number sniffing). Returns null on error.
+function readMagic(p, n = 12) {
+  try { const fd = fs.openSync(p, 'r'); const b = Buffer.alloc(n); fs.readSync(fd, b, 0, n, 0); fs.closeSync(fd); return b; }
+  catch { return null; }
+}
+
+// True if the bytes are a raster image sharp can decode (PNG/JPEG/GIF/WebP).
+function isRasterImage(buf) {
+  if (!buf || buf.length < 12) return false;
+  if (buf.slice(0, 4).toString('hex') === '89504e47') return true;                 // PNG
+  if (buf[0] === 0xff && buf[1] === 0xd8) return true;                              // JPEG
+  if (buf.slice(0, 3).toString('latin1') === 'GIF') return true;                   // GIF
+  if (buf.slice(0, 4).toString('latin1') === 'RIFF' && buf.slice(8, 12).toString('latin1') === 'WEBP') return true; // WebP
+  return false;
+}
+
+// Find Codex's actual output image. Codex saves the image via an agentic shell copy
+// to `preferredName`, which occasionally leaves a non-image (text/HTML/truncated) at
+// that name while the real image sits elsewhere. So: take the preferred file when it's
+// a valid raster image, otherwise the newest valid raster image anywhere under `dir`.
+function findGeneratedImage(dir, preferredName) {
+  const all = [];
+  const walk = (d) => {
+    let entries; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p); else all.push(p);
+    }
+  };
+  walk(dir);
+  const pref = path.join(dir, preferredName);
+  if (all.includes(pref) && isRasterImage(readMagic(pref))) return pref;
+  const images = all
+    .filter(p => isRasterImage(readMagic(p)))
+    .map(p => { let m = 0; try { m = fs.statSync(p).mtimeMs; } catch { /* ignore */ } return { p, m }; })
+    .sort((a, b) => b.m - a.m);
+  return images.length ? images[0].p : null;
+}
+
 /**
  * Generate a Codex banner for a blog post. Returns a WebP Buffer or null.
+ * Retries on transient Codex flakiness (the agentic save step is non-deterministic).
  * @param {string} title       post title (headline)
  * @param {object} blog        blog config (slug/name/context_path/domain)
  * @param {string} blogContent article HTML (subhead fallback if no meta description)
@@ -157,46 +197,58 @@ async function generateCodexBanner(title, blog = {}, blogContent = '', spec = {}
   const W = spec.width || 1200, H = spec.height || 630;
   const brand = brandForBlog(blog);
   const codexBin = resolveCodexBin();
-
   const { w, h } = codexSize(W, H);
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codexbanner-'));
   const saveName = 'banner.png';
   // Subhead: use the crafted meta description when present, else fall back to the
   // article's first sentence. (Meta reads better on a banner than the raw opener.)
   const subhead = (metaDescription && metaDescription.trim()) ? clip(metaDescription) : firstSentence(blogContent);
   const prompt = buildPrompt({ title, subhead, brand, w, h, saveName });
+  const timeoutMs = parseInt(process.env.CODEX_IMAGE_TIMEOUT_MS) || 360000;
+  const attempts = Math.max(1, parseInt(process.env.CODEX_IMAGE_RETRIES) || 3);
 
-  try {
-    if (onProgress) onProgress(`Codex image_gen generating banner (${brand.key})…`);
-    const ok = await runCodex(codexBin, prompt, tmpDir, parseInt(process.env.CODEX_IMAGE_TIMEOUT_MS) || 360000);
-    const genPath = path.join(tmpDir, saveName);
-    if (!ok || !fs.existsSync(genPath)) {
-      if (onProgress) onProgress('Codex image_gen produced no file — falling back');
-      return null;
-    }
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codexbanner-'));
+    try {
+      if (onProgress) onProgress(`Codex image_gen generating banner (${brand.key}, attempt ${attempt}/${attempts})…`);
+      const ok = await runCodex(codexBin, prompt, tmpDir, timeoutMs);
+      const genPath = ok ? findGeneratedImage(tmpDir, saveName) : null;
+      if (!genPath) {
+        if (onProgress) onProgress(`Codex produced no usable image (attempt ${attempt}/${attempts}) — ${ok ? 'no valid image file found' : 'codex exited non-zero'}`);
+        continue; // retry
+      }
 
-    // Resize/cover to the blog's exact spec, then composite the real logo bottom-left.
-    let img = sharp(genPath).resize(W, H, { fit: 'cover', position: 'centre' });
-    let base = await img.png().toBuffer();
-    const logoPath = resolveLogo(blog);
-    if (logoPath) {
+      // Validate the output decodes before relying on it (guards the flaky save step).
+      let base;
       try {
-        const logoH = Math.round(52 * (H / 1024));
-        const logo = await sharp(logoPath, { density: 384 }).resize({ height: logoH }).png().toBuffer();
-        base = await sharp(base)
-          .composite([{ input: logo, left: Math.round(72 * (W / 1536)), top: H - logoH - Math.round(60 * (H / 1024)) }])
-          .png().toBuffer();
-      } catch (e) { if (onProgress) onProgress(`Codex banner logo overlay failed: ${e.message}`); }
+        base = await sharp(genPath).resize(W, H, { fit: 'cover', position: 'centre' }).png().toBuffer();
+      } catch (e) {
+        if (onProgress) onProgress(`Codex output not decodable (attempt ${attempt}/${attempts}): ${e.message}`);
+        continue; // retry
+      }
+
+      // Composite the real logo bottom-left.
+      const logoPath = resolveLogo(blog);
+      if (logoPath) {
+        try {
+          const logoH = Math.round(52 * (H / 1024));
+          const logo = await sharp(logoPath, { density: 384 }).resize({ height: logoH }).png().toBuffer();
+          base = await sharp(base)
+            .composite([{ input: logo, left: Math.round(72 * (W / 1536)), top: H - logoH - Math.round(60 * (H / 1024)) }])
+            .png().toBuffer();
+        } catch (e) { if (onProgress) onProgress(`Codex banner logo overlay failed: ${e.message}`); }
+      }
+      const out = await sharp(base).webp({ quality: 90 }).toBuffer();
+      if (onProgress) onProgress(`Codex banner ready: ${Math.round(out.length / 1024)}KB (attempt ${attempt}/${attempts})`);
+      return out;
+    } catch (e) {
+      if (onProgress) onProgress(`Codex image generation error (attempt ${attempt}/${attempts}): ${e.message}`);
+      // fall through to retry
+    } finally {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
-    const out = await sharp(base).webp({ quality: 90 }).toBuffer();
-    if (onProgress) onProgress(`Codex banner ready: ${Math.round(out.length / 1024)}KB`);
-    return out;
-  } catch (e) {
-    if (onProgress) onProgress(`Codex image generation failed: ${e.message}`);
-    return null;
-  } finally {
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
+  if (onProgress) onProgress(`Codex image_gen failed after ${attempts} attempt(s)`);
+  return null;
 }
 
 module.exports = { generateCodexBanner, brandForBlog, resolveLogo, resolveCodexBin };

@@ -952,20 +952,31 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
     return false;
   };
 
+  // Strict-Codex blogs (default: vc) use ONLY the Codex image_gen banner — no
+  // Pollinations/stock/OpenAI fallback, so a flaky Codex run never silently downgrades
+  // to a generic AI photo. Codex itself retries internally; if it still fails, the only
+  // fallback is the deterministic brand SVG gradient below. Override via STRICT_CODEX_BLOGS.
+  const strictCodexBlogs = (process.env.STRICT_CODEX_BLOGS || 'vc')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const codexOnly = strictCodexBlogs.includes(String(blog.slug || '').toLowerCase());
+
   // Order: Codex banner (all blogs) → OpenAI (if key) → per-blog free sources.
   // ViitorCloud prefers real stock photos before the free AI; others keep free-AI-first.
   const hasOpenAI = !!(process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY);
-  const order = [
-    tryCodex,
-    ...(hasOpenAI ? [tryOpenAI] : []),
-    ...(spec.preferStock ? [tryStock, tryAi] : [tryAi, tryStock]),
-  ];
+  const order = codexOnly
+    ? [tryCodex]
+    : [
+        tryCodex,
+        ...(hasOpenAI ? [tryOpenAI] : []),
+        ...(spec.preferStock ? [tryStock, tryAi] : [tryAi, tryStock]),
+      ];
   for (const attempt of order) {
     if (!buffer) await attempt();
   }
 
   // ── Final fallback: SVG gradient (always works, no network/keys) ──
   if (!buffer) {
+    if (codexOnly) console.warn('[ImageService] Strict-Codex blog but Codex banner failed after retries — using brand SVG gradient (NOT a generic AI image).');
     const brandName  = blog.name ? blog.name.replace(/\s+blog$/i, '').trim() : '';
     const brandDomain = blog.domain || '';
     buffer = await generateFeaturedImage(title, keyword, theme, brandName, brandDomain, spec.width, spec.height);
