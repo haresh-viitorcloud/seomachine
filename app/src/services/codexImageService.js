@@ -47,6 +47,26 @@ function brandForBlog(blog = {}) {
   return { key: 'default', accent: '#3B82F6', bg: 'a deep navy-to-blue gradient', dark: true, url: blog.domain || '' };
 }
 
+// Load the blog's LIVE banner prompt from blogs/{slug}/context/banner-instructions.md
+// (only the text after a `---PROMPT---` marker, if present). Returns null if absent, so
+// the caller falls back to the built-in buildPrompt(). Editing that file changes the
+// prompt with no code change/restart.
+function loadBannerPrompt(blog) {
+  if (!blog || !blog.context_path) return null;
+  for (const base of [REPO_ROOT, APP_ROOT]) {
+    const p = path.resolve(base, blog.context_path, 'banner-instructions.md');
+    try {
+      if (!fs.existsSync(p)) continue;
+      let t = fs.readFileSync(p, 'utf8');
+      const marker = t.indexOf('---PROMPT---');
+      if (marker !== -1) t = t.slice(marker + '---PROMPT---'.length);
+      t = t.trim();
+      return t || null;
+    } catch { /* try next base */ }
+  }
+  return null;
+}
+
 // Resolve the blog's logo.svg under either path convention.
 function resolveLogo(blog) {
   if (!blog || !blog.context_path) return null;
@@ -202,7 +222,16 @@ async function generateCodexBanner(title, blog = {}, blogContent = '', spec = {}
   // Subhead: use the crafted meta description when present, else fall back to the
   // article's first sentence. (Meta reads better on a banner than the raw opener.)
   const subhead = (metaDescription && metaDescription.trim()) ? clip(metaDescription) : firstSentence(blogContent);
-  const prompt = buildPrompt({ title, subhead, brand, w, h, saveName });
+  // Prompt: prefer the blog's LIVE banner-instructions.md (editable, includes the
+  // dynamic topic-icon rule); fall back to the built-in buildPrompt if absent.
+  const tmpl = loadBannerPrompt(blog);
+  const prompt = tmpl
+    ? tmpl.replace(/\{\{HEADLINE\}\}/g, title || '')
+          .replace(/\{\{SUBHEAD\}\}/g, subhead || '')
+          .replace(/\{\{WIDTH\}\}/g, String(w))
+          .replace(/\{\{HEIGHT\}\}/g, String(h))
+          .replace(/\{\{SAVE_NAME\}\}/g, saveName)
+    : buildPrompt({ title, subhead, brand, w, h, saveName });
   const timeoutMs = parseInt(process.env.CODEX_IMAGE_TIMEOUT_MS) || 360000;
   const attempts = Math.max(1, parseInt(process.env.CODEX_IMAGE_RETRIES) || 3);
 

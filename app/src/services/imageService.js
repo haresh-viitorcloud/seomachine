@@ -965,13 +965,15 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
   };
 
   const blogSlug = String(blog.slug || '').toLowerCase();
-  // Brand-banner blogs (default: vc) render STRICTLY over their own BG images — no AI
-  // background and no generic-photo fallback. If the BG render fails, the only fallback
-  // is the deterministic brand SVG gradient below. Override via BRAND_BANNER_BLOGS.
-  const brandBannerBlogs = (process.env.BRAND_BANNER_BLOGS || 'vc')
+  // Strict-Codex blogs (default: vc) use ONLY the Codex image_gen banner — Codex draws
+  // the background + the DYNAMIC per-topic icon + text (prompt lives in the blog's
+  // banner-instructions.md). No OpenAI/Pollinations/stock fallback; if Codex fails after
+  // its retries, the sole fallback is the brand SVG gradient. Override via STRICT_CODEX_BLOGS.
+  const strictCodexBlogs = (process.env.STRICT_CODEX_BLOGS || 'vc')
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  // Strict-Codex blogs use ONLY the Codex banner (no generic fallback). Default: none.
-  const strictCodexBlogs = (process.env.STRICT_CODEX_BLOGS || '')
+  // Brand-banner blogs render over their own BG PNGs via code-composite (no AI). Off by
+  // default now; enable per blog via BRAND_BANNER_BLOGS if you want the BG-image style.
+  const brandBannerBlogs = (process.env.BRAND_BANNER_BLOGS || '')
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
   // Order: brand-banner blogs → BG render only; strict-Codex blogs → Codex only;
