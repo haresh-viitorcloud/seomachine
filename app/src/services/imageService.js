@@ -952,31 +952,47 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
     return false;
   };
 
-  // Strict-Codex blogs (default: vc) use ONLY the Codex image_gen banner — no
-  // Pollinations/stock/OpenAI fallback, so a flaky Codex run never silently downgrades
-  // to a generic AI photo. Codex itself retries internally; if it still fails, the only
-  // fallback is the deterministic brand SVG gradient below. Override via STRICT_CODEX_BLOGS.
-  const strictCodexBlogs = (process.env.STRICT_CODEX_BLOGS || 'vc')
-    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  const codexOnly = strictCodexBlogs.includes(String(blog.slug || '').toLowerCase());
+  // Brand banner: composite headline + short meta subtext + real logo over the blog's
+  // OWN background image (blogs/{slug}/context/BG/*). Deterministic, no AI, no network.
+  // Already includes the logo, so it is excluded from the logo re-composite below.
+  const tryBrandBanner = async () => {
+    try {
+      const { generateBrandBanner } = require('./brandBannerService');
+      const b = await generateBrandBanner(title, blog, spec, meta, null);
+      if (b) { buffer = b; source = 'brand-banner'; return true; }
+    } catch { /* fall through */ }
+    return false;
+  };
 
-  // Order: Codex banner (all blogs) → OpenAI (if key) → per-blog free sources.
-  // ViitorCloud prefers real stock photos before the free AI; others keep free-AI-first.
+  const blogSlug = String(blog.slug || '').toLowerCase();
+  // Brand-banner blogs (default: vc) render STRICTLY over their own BG images — no AI
+  // background and no generic-photo fallback. If the BG render fails, the only fallback
+  // is the deterministic brand SVG gradient below. Override via BRAND_BANNER_BLOGS.
+  const brandBannerBlogs = (process.env.BRAND_BANNER_BLOGS || 'vc')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  // Strict-Codex blogs use ONLY the Codex banner (no generic fallback). Default: none.
+  const strictCodexBlogs = (process.env.STRICT_CODEX_BLOGS || '')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
+  // Order: brand-banner blogs → BG render only; strict-Codex blogs → Codex only;
+  // everyone else → Codex banner → OpenAI (if key) → per-blog free sources.
   const hasOpenAI = !!(process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY);
-  const order = codexOnly
-    ? [tryCodex]
-    : [
-        tryCodex,
-        ...(hasOpenAI ? [tryOpenAI] : []),
-        ...(spec.preferStock ? [tryStock, tryAi] : [tryAi, tryStock]),
-      ];
+  let order;
+  if (brandBannerBlogs.includes(blogSlug)) {
+    order = [tryBrandBanner];
+  } else if (strictCodexBlogs.includes(blogSlug)) {
+    order = [tryCodex];
+  } else {
+    order = [tryCodex, ...(hasOpenAI ? [tryOpenAI] : []), ...(spec.preferStock ? [tryStock, tryAi] : [tryAi, tryStock])];
+  }
   for (const attempt of order) {
     if (!buffer) await attempt();
   }
 
   // ── Final fallback: SVG gradient (always works, no network/keys) ──
   if (!buffer) {
-    if (codexOnly) console.warn('[ImageService] Strict-Codex blog but Codex banner failed after retries — using brand SVG gradient (NOT a generic AI image).');
+    if (brandBannerBlogs.includes(blogSlug)) console.warn('[ImageService] Brand-banner blog but BG render failed — using brand SVG gradient.');
+    else if (strictCodexBlogs.includes(blogSlug)) console.warn('[ImageService] Strict-Codex blog but Codex failed after retries — using brand SVG gradient (NOT a generic AI image).');
     const brandName  = blog.name ? blog.name.replace(/\s+blog$/i, '').trim() : '';
     const brandDomain = blog.domain || '';
     buffer = await generateFeaturedImage(title, keyword, theme, brandName, brandDomain, spec.width, spec.height);
@@ -984,8 +1000,8 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
   }
 
   // ── Logo composite: applied to ALL sources EXCEPT banners that already have the
-  // real logo overlaid in-place (LaraCopilot OpenAI banner, and the Codex banner). ──
-  if (source !== 'openai-banner' && source !== 'codex-banner') {
+  // real logo overlaid in-place (LaraCopilot OpenAI banner, Codex banner, brand banner). ──
+  if (source !== 'openai-banner' && source !== 'codex-banner' && source !== 'brand-banner') {
     // Premium (VC) or any OpenAI-sourced image keeps higher webp quality + a larger
     // size ceiling so the clean detail survives; free/stock sources keep the lean target.
     const premium = spec.bright || source === 'openai';
