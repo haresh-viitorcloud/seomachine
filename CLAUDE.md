@@ -134,10 +134,12 @@ merges never conflict with it. See `app/CLAUDE.md` for the app's full internals.
 
 **Two generation engines, switchable from the UI** (Claude Setup page → 🧩 Generation Engine):
 - **`native`** — the app's built-in 2-call Claude pipeline (default).
-- **`seomachine`** — drives THIS repo's methodology: it reads the **live** `.claude/commands/write.md`
-  + the app's per-blog brand context, generates via the Claude CLI, then runs this repo's Python
-  quality gate (`data_sources/modules/content_scrubber.py` + `content_scorer.py`). Because it reads
-  these files live, upstream improvements to the methodology and the Python modules flow straight in.
+- **`seomachine`** — drives THIS repo's methodology: it reads the **live** ordered 4-command pipeline
+  (`.claude/commands/research.md` → `write.md` → `optimize.md` → `scrub.md`) + the app's per-blog brand
+  context, generates via the Claude CLI, then runs this repo's Python quality gate
+  (`data_sources/modules/content_scrubber.py` + `content_scorer.py`). Because it reads these files live,
+  upstream improvements to the methodology and the Python modules flow straight in. Per user directive,
+  `rules/vc_blog_generation.md` is disabled and never injected (see `DISABLED_RULES_FILES` in `claudeService.js`).
 
 Bridge code (all under `app/`): `src/services/seomachineService.js` (prompt build + root resolution),
 `src/services/claudeService.js` (`generateViaSeomachine`, engine dispatch via `getActiveEngine()`),

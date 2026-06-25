@@ -127,9 +127,31 @@ function getSdkClient() {
 // Context & rules loading
 // ─────────────────────────────────────────────────────────────
 
+// app/ dir (<root>/app). __dirname here = <root>/app/src/services.
+const appDir = path.resolve(__dirname, '..', '..');
+
+/**
+ * Resolve a configured context/rules path independently of the process cwd.
+ * The per-blog .env values mix two conventions — "./blogs/{slug}/context"
+ * (repo-root-relative: vc/everycred/everyticket) and "../blogs/{slug}/context"
+ * (app-relative: laracopilot). Resolving only against process.cwd() (= app/) broke
+ * the root-relative ones, silently falling back to the default context/. Try the
+ * repo root, then app/, then cwd, and use the first that exists (mirrors imageService).
+ */
+function resolveConfiguredPath(p) {
+  if (!p) return '';
+  if (path.isAbsolute(p)) return p;
+  const candidates = [
+    path.resolve(seomachineRoot, p), // root-relative: "./blogs/vc/context"
+    path.resolve(appDir, p),         // app-relative:  "../blogs/laracopilot/context"
+    path.resolve(process.cwd(), p),  // legacy cwd-relative
+  ];
+  return candidates.find(c => fs.existsSync(c)) || candidates[0];
+}
+
 function loadContextFiles(contextPath) {
   if (!contextPath) return '';
-  const absPath = path.resolve(process.cwd(), contextPath);
+  const absPath = resolveConfiguredPath(contextPath);
   if (!fs.existsSync(absPath)) return '';
   const files = fs.readdirSync(absPath).filter(f => f.endsWith('.md')).sort();
   return files.map(f => {
@@ -138,9 +160,16 @@ function loadContextFiles(contextPath) {
   }).join('\n\n---\n\n');
 }
 
+// Per-blog rules files the user has explicitly disabled — never injected into any
+// prompt, in either engine. Per user directive: do not use rules/vc_blog_generation.md.
+// Override/extend via env DISABLED_RULES_FILES (comma-separated basenames).
+const DISABLED_RULES_FILES = (process.env.DISABLED_RULES_FILES || 'vc_blog_generation.md')
+  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
 function loadRulesFile(rulesPath) {
   if (!rulesPath) return '';
-  const absPath = path.resolve(process.cwd(), rulesPath);
+  const absPath = resolveConfiguredPath(rulesPath);
+  if (DISABLED_RULES_FILES.includes(path.basename(absPath).toLowerCase())) return '';
   if (!fs.existsSync(absPath)) return '';
   return fs.readFileSync(absPath, 'utf8');
 }
