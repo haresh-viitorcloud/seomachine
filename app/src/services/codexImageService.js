@@ -83,6 +83,18 @@ function firstSentence(html, maxLen = 110) {
   return s;
 }
 
+// Clip a ready-made line (e.g. the meta description) to a banner-friendly length,
+// trimming on a word boundary. Used for the subhead.
+function clip(text, maxLen = 116) {
+  let s = String(text || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/g, ' ').replace(/\s+/g, ' ').trim();
+  if (s.length > maxLen) {
+    s = s.slice(0, maxLen);
+    const cut = s.lastIndexOf(' ');
+    s = (cut > 40 ? s.slice(0, cut) : s).trim().replace(/[,;:]$/, '') + '…';
+  }
+  return s;
+}
+
 // gpt-image size (multiple of 16, ratio <= 3:1) closest to the blog's target aspect.
 function codexSize(width, height) {
   const ratio = width / height;
@@ -134,11 +146,12 @@ function runCodex(codexBin, prompt, cwd, timeoutMs) {
  * Generate a Codex banner for a blog post. Returns a WebP Buffer or null.
  * @param {string} title       post title (headline)
  * @param {object} blog        blog config (slug/name/context_path/domain)
- * @param {string} blogContent article HTML (for the subhead)
+ * @param {string} blogContent article HTML (subhead fallback if no meta description)
  * @param {object} spec        { width, height } target dimensions
  * @param {function} [onProgress]
+ * @param {string} [metaDescription] post meta description — preferred subhead source
  */
-async function generateCodexBanner(title, blog = {}, blogContent = '', spec = {}, onProgress = null) {
+async function generateCodexBanner(title, blog = {}, blogContent = '', spec = {}, onProgress = null, metaDescription = '') {
   if (process.env.CODEX_IMAGE_DISABLED === '1') return null;
   const sharp = require('sharp');
   const W = spec.width || 1200, H = spec.height || 630;
@@ -148,7 +161,10 @@ async function generateCodexBanner(title, blog = {}, blogContent = '', spec = {}
   const { w, h } = codexSize(W, H);
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codexbanner-'));
   const saveName = 'banner.png';
-  const prompt = buildPrompt({ title, subhead: firstSentence(blogContent), brand, w, h, saveName });
+  // Subhead: use the crafted meta description when present, else fall back to the
+  // article's first sentence. (Meta reads better on a banner than the raw opener.)
+  const subhead = (metaDescription && metaDescription.trim()) ? clip(metaDescription) : firstSentence(blogContent);
+  const prompt = buildPrompt({ title, subhead, brand, w, h, saveName });
 
   try {
     if (onProgress) onProgress(`Codex image_gen generating banner (${brand.key})…`);

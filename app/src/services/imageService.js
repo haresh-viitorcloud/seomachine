@@ -861,7 +861,7 @@ async function compositeLogoOnImage(imageBuffer, logoPath, opts = {}) {
  * @param {object} blog         - Blog config row (needs context_path, name, domain)
  * @returns {Promise<{path, buffer, size, source}>}
  */
-async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blogContent = '') {
+async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blogContent = '', meta = '') {
   const sharp = require('sharp');
   let buffer = null;
   let source = 'gradient';
@@ -946,7 +946,7 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
   const tryCodex = async () => {
     try {
       const { generateCodexBanner } = require('./codexImageService');
-      const b = await generateCodexBanner(title, blog, blogContent, spec);
+      const b = await generateCodexBanner(title, blog, blogContent, spec, null, meta);
       if (b) { buffer = b; source = 'codex-banner'; return true; }
     } catch { /* fall through to other sources */ }
     return false;

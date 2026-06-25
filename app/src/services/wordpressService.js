@@ -96,7 +96,7 @@ async function postViaRestApi(config, content, rowData, onProgress) {
   let imageSource = '';
   try {
     if (onProgress) onProgress('Generating featured image...');
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content);
+    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content, content.meta_description);
     imageSource = img.source || '';
     if (onProgress) onProgress(`Featured image created via ${imageSource} (${Math.round(img.size / 1024)}KB) — uploading...`);
 
@@ -617,7 +617,7 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
   let imageFilename = 'featured.webp';
   let imageSource = '';
   try {
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content);
+    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content, content.meta_description);
     imageBase64 = img.buffer.toString('base64');
     imageFilename = img.path.split('/').pop();
     imageSource = img.source || '';
@@ -980,7 +980,7 @@ async function setFeaturedImage(page, content, rowData, onProgress) {
   let tmpPath = null;
   try {
     // Generate the image
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, {}, content.content);
+    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, {}, content.content, content.meta_description);
     tmpPath = img.path;
     if (onProgress) onProgress(`Featured image ready: ${img.source} (${Math.round(img.size / 1024)}KB)`);
 
