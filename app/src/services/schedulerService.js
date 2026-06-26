@@ -9,6 +9,7 @@ const dayjs = require('dayjs');
 const queueService = require('./queueService');
 const claudeService = require('./claudeService');
 const wordpressService = require('./wordpressService');
+const statamicService  = require('./statamicService');
 const { db } = require('../config/database');
 
 let _processing = false;
@@ -147,9 +148,10 @@ async function processJob(job) {
     }
   }
 
-  // ── Step 2: Post to WordPress ──
+  // ── Step 2: Post to WordPress or Statamic ──
+  const platform = (blogConfig.publishing_platform || 'wordpress').toLowerCase();
   queueService.updateJobStatus(job.id, 'posting');
-  queueService.addLog(job.id, 'info', `Posting draft to WordPress: ${blogConfig.name}`);
+  queueService.addLog(job.id, 'info', `Posting draft to ${platform === 'statamic' ? 'Statamic' : 'WordPress'}: ${blogConfig.name}`);
 
   try {
     const rawData = JSON.parse(job.raw_data || '{}');
@@ -161,12 +163,22 @@ async function processJob(job) {
     generatedContent.seo_title = claudeService.normalizeSeoTitle(generatedContent.seo_title || generatedContent.title, focusKw);
     generatedContent.meta_description = claudeService.normalizeMeta(generatedContent.meta_description);
 
-    const result = await wordpressService.postDraft(
-      blogConfig,
-      generatedContent,
-      rawData,
-      (msg) => queueService.addLog(job.id, 'info', msg)
-    );
+    let result;
+    if (platform === 'statamic') {
+      result = await statamicService.postDraft(
+        blogConfig,
+        generatedContent,
+        rawData,
+        (msg) => queueService.addLog(job.id, 'info', msg)
+      );
+    } else {
+      result = await wordpressService.postDraft(
+        blogConfig,
+        generatedContent,
+        rawData,
+        (msg) => queueService.addLog(job.id, 'info', msg)
+      );
+    }
 
     queueService.updateJobStatus(job.id, 'drafted', {
       wp_post_id: result.post_id,
@@ -176,10 +188,11 @@ async function processJob(job) {
 
     queueService.addLog(job.id, 'success', `Draft saved successfully! Post ID: ${result.post_id}`);
   } catch (err) {
+    const platformLabel = platform === 'statamic' ? 'Statamic' : 'WordPress';
     queueService.updateJobStatus(job.id, 'error', {
-      error_message: `WordPress posting failed: ${err.message}`,
+      error_message: `${platformLabel} posting failed: ${err.message}`,
     });
-    queueService.addLog(job.id, 'error', `WordPress posting failed: ${err.message}`);
+    queueService.addLog(job.id, 'error', `${platformLabel} posting failed: ${err.message}`);
   }
 
   // Check if the entire upload batch is now complete (no pending/generating/posting left)

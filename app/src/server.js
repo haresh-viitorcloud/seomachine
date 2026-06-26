@@ -157,12 +157,17 @@ function seedBlogConfigsFromEnv() {
 
   for (const SLUG of slugs) {
     const slug = SLUG.toLowerCase();
-    const existing = db.prepare('SELECT id, wp_category, wp_author_id FROM blog_configs WHERE slug = ?').get(slug);
+    const existing = db.prepare('SELECT id, wp_category, wp_author_id, statamic_cp_username, statamic_api_token, statamic_blueprint, statamic_site FROM blog_configs WHERE slug = ?').get(slug);
     // Category/author are editable in the Settings UI. Env only overrides them when
     // explicitly set — an empty/missing env var keeps the UI-edited DB value instead
     // of resetting to '1' on every restart.
     const envCategory = (process.env[`BLOG_${SLUG}_WP_CATEGORY`] || '').trim();
     const envAuthor = parseInt(process.env[`BLOG_${SLUG}_WP_AUTHOR_ID`]);
+    const platform = (process.env[`BLOG_${SLUG}_PUBLISHING_PLATFORM`] || 'wordpress').toLowerCase();
+    // Statamic credentials: use .env value when non-empty, else preserve existing DB value
+    // (same pattern as wp_category/wp_author_id so UI-saved credentials survive restarts)
+    const envSmPassword = (process.env[`BLOG_${SLUG}_STATAMIC_CP_PASSWORD`] || process.env[`BLOG_${SLUG}_STATAMIC_API_TOKEN`] || '').trim();
+    const envSmUsername = (process.env[`BLOG_${SLUG}_STATAMIC_CP_USERNAME`] || '').trim();
     const vals = [
       process.env[`BLOG_${SLUG}_NAME`] || slug,
       process.env[`BLOG_${SLUG}_DOMAIN`] || '',
@@ -176,22 +181,36 @@ function seedBlogConfigsFromEnv() {
       envAuthor || existing?.wp_author_id || 1,
       process.env[`BLOG_${SLUG}_CONTEXT_PATH`] || '',
       process.env[`BLOG_${SLUG}_RULES_PATH`] || `../rules/${slug}_blog_generation.md`,
+      platform,
+      process.env[`BLOG_${SLUG}_STATAMIC_URL`] || '',
+      envSmPassword || existing?.statamic_api_token || '',
+      process.env[`BLOG_${SLUG}_STATAMIC_COLLECTION`] || '',
+      envSmUsername || existing?.statamic_cp_username || '',
+      process.env[`BLOG_${SLUG}_STATAMIC_BLUEPRINT`] || existing?.statamic_blueprint || 'article',
+      process.env[`BLOG_${SLUG}_STATAMIC_SITE`] || existing?.statamic_site || 'default',
     ];
     if (!existing) {
       db.prepare(`
-        INSERT INTO blog_configs (slug, name, domain, wp_url, wp_login_url, wp_username, wp_password, wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO blog_configs (
+          slug, name, domain, wp_url, wp_login_url, wp_username, wp_password,
+          wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path,
+          publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
+          statamic_blueprint, statamic_site
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(slug, ...vals);
-      console.log(`[Setup] Blog config created from .env: ${slug}`);
+      console.log(`[Setup] Blog config created from .env: ${slug} (${platform})`);
     } else {
       // Sync credentials from .env on every restart so .env is the source of truth
       db.prepare(`
         UPDATE blog_configs SET name=?, domain=?, wp_url=?, wp_login_url=?, wp_username=?,
           wp_password=?, wp_method=?, wp_app_password=?, wp_category=?,
-          wp_author_id=?, context_path=?, rules_path=?, updated_at=datetime('now')
+          wp_author_id=?, context_path=?, rules_path=?,
+          publishing_platform=?, statamic_url=?, statamic_api_token=?, statamic_collection=?, statamic_cp_username=?,
+          statamic_blueprint=?, statamic_site=?,
+          updated_at=datetime('now')
         WHERE slug=?
       `).run(...vals, slug);
-      console.log(`[Setup] Blog config synced from .env: ${slug}`);
+      console.log(`[Setup] Blog config synced from .env: ${slug} (${platform})`);
     }
   }
 }

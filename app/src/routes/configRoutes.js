@@ -1,29 +1,52 @@
 const express = require('express');
 const { requireAuth } = require('../middleware/authMiddleware');
 const wordpressService = require('../services/wordpressService');
+const statamicService  = require('../services/statamicService');
 const { db } = require('../config/database');
 
 const router = express.Router();
 
 // Get all blog configurations
 router.get('/api/configs', requireAuth, (req, res) => {
-  const configs = db.prepare('SELECT id, slug, name, domain, wp_url, wp_username, wp_method, wp_category, wp_author_id, context_path, rules_path, is_active, created_at FROM blog_configs ORDER BY id ASC').all();
+  const configs = db.prepare(`
+    SELECT id, slug, name, domain, wp_url, wp_username, wp_method, wp_category, wp_author_id,
+           context_path, rules_path, is_active, created_at,
+           publishing_platform, statamic_url, statamic_collection, statamic_cp_username,
+           statamic_blueprint, statamic_site
+    FROM blog_configs ORDER BY id ASC
+  `).all();
   res.json({ configs });
 });
 
 // Get single config (no passwords)
 router.get('/api/configs/:id', requireAuth, (req, res) => {
-  const config = db.prepare('SELECT id, slug, name, domain, wp_url, wp_username, wp_method, wp_category, wp_author_id, context_path, rules_path, is_active FROM blog_configs WHERE id = ?').get(req.params.id);
+  const config = db.prepare(`
+    SELECT id, slug, name, domain, wp_url, wp_username, wp_method, wp_category, wp_author_id,
+           context_path, rules_path, is_active,
+           publishing_platform, statamic_url, statamic_collection, statamic_cp_username,
+           statamic_blueprint, statamic_site
+    FROM blog_configs WHERE id = ?
+  `).get(req.params.id);
   if (!config) return res.status(404).json({ error: 'Config not found' });
   res.json({ config });
 });
 
 // Create new blog config
 router.post('/api/configs', requireAuth, (req, res) => {
-  const { slug, name, domain, wp_url, wp_login_url, wp_username, wp_password, wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path } = req.body;
+  const {
+    slug, name, domain, wp_url, wp_login_url, wp_username, wp_password,
+    wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path,
+    publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
+    statamic_blueprint, statamic_site,
+  } = req.body;
 
-  if (!slug || !name || !domain || !wp_url || !wp_username || !wp_password) {
-    return res.status(400).json({ error: 'Required fields: slug, name, domain, wp_url, wp_username, wp_password' });
+  const platform = publishing_platform || 'wordpress';
+
+  if (!slug || !name || !domain) {
+    return res.status(400).json({ error: 'Required fields: slug, name, domain' });
+  }
+  if (platform === 'wordpress' && (!wp_url || !wp_username || !wp_password)) {
+    return res.status(400).json({ error: 'WordPress platform requires: wp_url, wp_username, wp_password' });
   }
 
   if (!/^[a-z0-9_]+$/.test(slug)) {
@@ -36,17 +59,40 @@ router.post('/api/configs', requireAuth, (req, res) => {
   }
 
   const result = db.prepare(`
-    INSERT INTO blog_configs (slug, name, domain, wp_url, wp_login_url, wp_username, wp_password, wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(slug, name, domain, wp_url, wp_login_url || '', wp_username, wp_password, wp_method || 'browser', wp_app_password || '', wp_category || '1', wp_author_id || 1, context_path || '', rules_path || '');
+    INSERT INTO blog_configs (
+      slug, name, domain, wp_url, wp_login_url, wp_username, wp_password,
+      wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path,
+      publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
+      statamic_blueprint, statamic_site
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    slug, name, domain,
+    wp_url || '', wp_login_url || '', wp_username || '', wp_password || '',
+    wp_method || 'api', wp_app_password || '',
+    wp_category || '1', wp_author_id || 1,
+    context_path || '', rules_path || '',
+    platform,
+    statamic_url || '', statamic_api_token || '', statamic_collection || '', statamic_cp_username || '',
+    statamic_blueprint || 'article', statamic_site || 'default'
+  );
 
-  const config = db.prepare('SELECT id, slug, name, domain, wp_url, wp_username, wp_method, wp_category, context_path FROM blog_configs WHERE id = ?').get(result.lastInsertRowid);
+  const config = db.prepare(`
+    SELECT id, slug, name, domain, wp_url, wp_username, wp_method, wp_category, context_path,
+           publishing_platform, statamic_url, statamic_collection, statamic_cp_username,
+           statamic_blueprint, statamic_site
+    FROM blog_configs WHERE id = ?
+  `).get(result.lastInsertRowid);
   res.status(201).json({ ok: true, config });
 });
 
 // Update blog config
 router.put('/api/configs/:id', requireAuth, (req, res) => {
-  const { name, domain, wp_url, wp_login_url, wp_username, wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path, is_active } = req.body;
+  const {
+    name, domain, wp_url, wp_login_url, wp_username, wp_method, wp_app_password,
+    wp_category, wp_author_id, context_path, rules_path, is_active,
+    publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
+    statamic_blueprint, statamic_site,
+  } = req.body;
   const { wp_password } = req.body;
 
   const existing = db.prepare('SELECT * FROM blog_configs WHERE id = ?').get(req.params.id);
@@ -57,14 +103,18 @@ router.put('/api/configs/:id', requireAuth, (req, res) => {
       name = ?, domain = ?, wp_url = ?, wp_login_url = ?, wp_username = ?,
       wp_password = ?, wp_method = ?, wp_app_password = ?,
       wp_category = ?, wp_author_id = ?, context_path = ?,
-      rules_path = ?, is_active = ?, updated_at = datetime('now')
+      rules_path = ?, is_active = ?,
+      publishing_platform = ?, statamic_url = ?, statamic_api_token = ?,
+      statamic_collection = ?, statamic_cp_username = ?,
+      statamic_blueprint = ?, statamic_site = ?,
+      updated_at = datetime('now')
     WHERE id = ?
   `).run(
     name || existing.name,
     domain || existing.domain,
-    wp_url || existing.wp_url,
+    wp_url !== undefined ? wp_url : existing.wp_url,
     wp_login_url !== undefined ? wp_login_url : existing.wp_login_url,
-    wp_username || existing.wp_username,
+    wp_username !== undefined ? wp_username : existing.wp_username,
     wp_password || existing.wp_password,
     wp_method || existing.wp_method,
     wp_app_password !== undefined ? wp_app_password : existing.wp_app_password,
@@ -73,6 +123,13 @@ router.put('/api/configs/:id', requireAuth, (req, res) => {
     context_path !== undefined ? context_path : existing.context_path,
     rules_path !== undefined ? rules_path : existing.rules_path,
     is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
+    publishing_platform || existing.publishing_platform || 'wordpress',
+    statamic_url !== undefined ? statamic_url : (existing.statamic_url || ''),
+    statamic_api_token !== undefined ? statamic_api_token : (existing.statamic_api_token || ''),
+    statamic_collection !== undefined ? statamic_collection : (existing.statamic_collection || ''),
+    statamic_cp_username !== undefined ? statamic_cp_username : (existing.statamic_cp_username || ''),
+    statamic_blueprint !== undefined ? statamic_blueprint : (existing.statamic_blueprint || 'article'),
+    statamic_site !== undefined ? statamic_site : (existing.statamic_site || 'default'),
     req.params.id
   );
 
@@ -85,6 +142,21 @@ router.post('/api/configs/:id/test', requireAuth, async (req, res) => {
   if (!config) return res.status(404).json({ error: 'Config not found' });
 
   const result = await wordpressService.testConnection(config);
+  res.json(result);
+});
+
+// Test Statamic connection
+router.post('/api/configs/:id/test-statamic', requireAuth, async (req, res) => {
+  const config = db.prepare('SELECT * FROM blog_configs WHERE id = ?').get(req.params.id);
+  if (!config) return res.status(404).json({ error: 'Config not found' });
+
+  console.log(`[Statamic Test] blog=${config.slug} url=${config.statamic_url} user=${config.statamic_cp_username || '(empty)'} pass=${config.statamic_api_token ? '(set)' : '(empty)'}`);
+  const result = await statamicService.testConnection(config);
+  if (!result.ok) {
+    console.error(`[Statamic Test] FAILED: ${result.error}`);
+  } else {
+    console.log(`[Statamic Test] OK — site: ${result.name}`);
+  }
   res.json(result);
 });
 

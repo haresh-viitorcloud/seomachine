@@ -4,6 +4,7 @@
 # Usage:  bash start.sh
 #         bash start.sh --dev      (auto-reload on file changes)
 #         bash start.sh --bg       (run in background with PM2)
+#         bash start.sh --bg-log   (run in background, log to ./server.log)
 # ─────────────────────────────────────────────────────────────
 
 set -e
@@ -85,6 +86,13 @@ if [ "$1" = "--bg" ]; then
     warn "PM2 not installed. Install with: npm install -g pm2"
     exit 1
   fi
+elif [ "$1" = "--bg-log" ]; then
+  LOG_FILE="$(pwd)/server.log"
+  fuser "$APP_PORT/tcp" 2>/dev/null | xargs kill -9 2>/dev/null || true
+  nohup node src/server.js > "$LOG_FILE" 2>&1 &
+  ok "Running in background (PID $!)"
+  echo -e "  Log:    ${CYAN}$LOG_FILE${NC}"
+  echo -e "  Stop:   ${CYAN}fuser -k ${APP_PORT}/tcp${NC}"
 elif [ "$1" = "--dev" ]; then
   exec node --watch src/server.js
 else

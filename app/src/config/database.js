@@ -128,6 +128,13 @@ function initializeDatabase() {
     "ALTER TABLE jobs ADD COLUMN image_source TEXT DEFAULT ''",
     "ALTER TABLE jobs ADD COLUMN seomachine_score REAL",
     "ALTER TABLE jobs ADD COLUMN generated_category TEXT",
+    "ALTER TABLE blog_configs ADD COLUMN publishing_platform TEXT NOT NULL DEFAULT 'wordpress'",
+    "ALTER TABLE blog_configs ADD COLUMN statamic_url TEXT DEFAULT ''",
+    "ALTER TABLE blog_configs ADD COLUMN statamic_api_token TEXT DEFAULT ''",
+    "ALTER TABLE blog_configs ADD COLUMN statamic_collection TEXT DEFAULT ''",
+    "ALTER TABLE blog_configs ADD COLUMN statamic_cp_username TEXT DEFAULT ''",
+    "ALTER TABLE blog_configs ADD COLUMN statamic_blueprint TEXT DEFAULT 'article'",
+    "ALTER TABLE blog_configs ADD COLUMN statamic_site TEXT DEFAULT 'default'",
   ];
   for (const sql of migrations) {
     // Only swallow the expected "duplicate column" case; surface any other failure
