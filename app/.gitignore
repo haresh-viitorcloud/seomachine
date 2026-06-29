@@ -7,3 +7,4 @@ data/
 .playwright/
 playwright-browsers/
 *.lnk
+server.log

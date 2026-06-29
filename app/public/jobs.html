@@ -479,7 +479,9 @@ function renderGroup(upload) {
     .map(([s, n]) => `<span class="uh-stat" style="color:${statColors[s] || 'var(--text-muted)'}"><span>${n}</span> ${statLabels[s] || s}</span>`)
     .join('');
 
-  const tableRows = jobs.map(j => renderJobRow(j, upload.blog_name)).join('');
+  const blogMeta = allBlogs.find(b => String(b.id) === String(upload.blog_id));
+  const blogPlatform = blogMeta?.publishing_platform || 'wordpress';
+  const tableRows = jobs.map(j => renderJobRow(j, upload.blog_name, blogPlatform)).join('');
 
   return `
     <div class="upload-group" id="group-${upload.id}">
@@ -512,7 +514,7 @@ function renderGroup(upload) {
               <th>Scheduled</th>
               <th>Status</th>
               <th>Cost</th>
-              <th>WP Post</th>
+              <th>Draft</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -540,7 +542,7 @@ function qualityChip(score) {
     title="SEO Machine content-quality score: ${s}/100 (humanity, specificity, structure, SEO, readability)">Q ${s}</span>`;
 }
 
-function renderJobRow(j, blogName) {
+function renderJobRow(j, blogName, blogPlatform) {
   const isActive = ['generating','posting'].includes(j.status);
   const displayTitle = j.generated_title || j.title || '—';
 
@@ -565,9 +567,19 @@ function renderJobRow(j, blogName) {
 
   const srcLabel = { pexels: '📷 Pexels', unsplash: '📷 Unsplash', svg: '🎨 SVG' }[j.image_source] || '';
   const imgSrcBadge = srcLabel ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px">${escHtml(srcLabel)}</div>` : '';
-  const wpLink = (j.wp_post_id && safeUrl(j.wp_post_url))
-    ? `<a href="${safeUrl(j.wp_post_url)}" target="_blank" rel="noopener" class="btn btn-success btn-sm" style="font-size:11px">WP #${j.wp_post_id}</a>${imgSrcBadge}`
-    : (j.wp_post_id ? `<span class="text-muted" style="font-size:11px">WP #${j.wp_post_id}</span>${imgSrcBadge}` : '<span class="text-muted" style="font-size:11px">—</span>');
+  const isStatamic = (blogPlatform || '') === 'statamic';
+  const platformPrefix = isStatamic ? 'SM' : 'WP';
+  const platformBtnStyle = isStatamic
+    ? 'font-size:11px;background:rgba(13,148,136,.18);color:#2dd4bf;border:1px solid rgba(13,148,136,.35)'
+    : 'font-size:11px';
+  // When wp_post_id is a raw URL (Statamic fallback when entry ID wasn't extracted),
+  // show "View" instead of the full URL to prevent table overflow.
+  const postIdIsUrl = j.wp_post_id && /^https?:\/\//.test(j.wp_post_id);
+  const postLabel = postIdIsUrl ? 'View' : (j.wp_post_id ? `#${j.wp_post_id}` : '');
+  const linkHref = safeUrl(j.wp_post_url) || (postIdIsUrl ? safeUrl(j.wp_post_id) : '');
+  const wpLink = (j.wp_post_id && linkHref)
+    ? `<a href="${linkHref}" target="_blank" rel="noopener" class="btn btn-success btn-sm" style="${platformBtnStyle}">${platformPrefix} ${postLabel}</a>${imgSrcBadge}`
+    : (j.wp_post_id ? `<span class="text-muted" style="font-size:11px">${platformPrefix} ${postLabel}</span>${imgSrcBadge}` : '<span class="text-muted" style="font-size:11px">—</span>');
 
   const actions = buildActions(j);
 
@@ -592,7 +604,7 @@ function renderJobRow(j, blogName) {
       <td style="font-size:12px;white-space:nowrap;color:var(--text-muted)">${fmtDateShort(j.scheduled_at)}</td>
       <td>${statusBadge}${elapsedHtml}</td>
       <td style="font-size:11px;color:var(--text-muted);white-space:nowrap">${j.cost_usd > 0 ? '$'+j.cost_usd.toFixed(4) : '—'}</td>
-      <td>${wpLink}</td>
+      <td style="max-width:130px;overflow:hidden">${wpLink}</td>
       <td onclick="event.stopPropagation()"><div class="action-group">${actions}</div></td>
     </tr>
     <tr class="log-panel-row" id="logs-${j.id}">

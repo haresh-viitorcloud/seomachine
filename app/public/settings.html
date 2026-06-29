@@ -113,28 +113,73 @@
           <input type="password" id="fWpPass" class="form-control" autocomplete="new-password">
         </div>
       </div>
+      <!-- Publishing Platform toggle -->
       <div class="form-group">
-        <label class="form-label">Posting Method</label>
-        <select id="fWpMethod" class="form-control" onchange="toggleAppPassword()">
-          <option value="api">REST API (recommended — requires Application Password)</option>
-          <option value="browser">Browser Automation (Playwright — any WP install)</option>
+        <label class="form-label">Publishing Platform</label>
+        <select id="fPlatform" class="form-control" onchange="togglePlatformFields()">
+          <option value="wordpress">WordPress</option>
+          <option value="statamic">Statamic</option>
         </select>
       </div>
-      <div class="form-group" id="appPasswordGroup">
-        <label class="form-label">WordPress Application Password</label>
-        <input type="password" id="fWpAppPass" class="form-control" placeholder="xxxx xxxx xxxx xxxx xxxx xxxx" autocomplete="new-password">
-        <div class="form-hint">Create in WP Admin → Users → Profile → Application Passwords section</div>
-      </div>
-      <div class="form-row">
+
+      <!-- WordPress-specific fields -->
+      <div id="wpFields">
         <div class="form-group">
-          <label class="form-label">Default Category ID</label>
-          <input type="text" id="fCategory" class="form-control" placeholder="1" value="1">
+          <label class="form-label">Posting Method</label>
+          <select id="fWpMethod" class="form-control" onchange="toggleAppPassword()">
+            <option value="api">REST API (recommended — requires Application Password)</option>
+            <option value="browser">Browser Automation (Playwright — any WP install)</option>
+          </select>
+        </div>
+        <div class="form-group" id="appPasswordGroup">
+          <label class="form-label">WordPress Application Password</label>
+          <input type="password" id="fWpAppPass" class="form-control" placeholder="xxxx xxxx xxxx xxxx xxxx xxxx" autocomplete="new-password">
+          <div class="form-hint">Create in WP Admin → Users → Profile → Application Passwords section</div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Default Category ID</label>
+            <input type="text" id="fCategory" class="form-control" placeholder="1" value="1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Author ID</label>
+            <input type="number" id="fAuthorId" class="form-control" placeholder="1" value="1">
+          </div>
+        </div>
+      </div>
+
+      <!-- Statamic-specific fields -->
+      <div id="statamicFields" style="display:none">
+        <div class="form-group">
+          <label class="form-label">Statamic Site URL <span style="color:var(--danger)">*</span></label>
+          <input type="url" id="fStatamicUrl" class="form-control" placeholder="https://your-site.com">
+          <div class="form-hint">Base URL of your Statamic site (no trailing slash)</div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">CP Username / Email <span style="color:var(--danger)">*</span></label>
+            <input type="text" id="fStatamicUsername" class="form-control" placeholder="admin@example.com" autocomplete="off">
+            <div class="form-hint">Your Statamic CP login email or username</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">CP Password <span style="color:var(--danger)">*</span></label>
+            <input type="password" id="fStatamicToken" class="form-control" placeholder="your-cp-password" autocomplete="new-password">
+          </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Author ID</label>
-          <input type="number" id="fAuthorId" class="form-control" placeholder="1" value="1">
+          <label class="form-label">Collection Handle <span style="color:var(--danger)">*</span></label>
+          <input type="text" id="fStatamicCollection" class="form-control" placeholder="articles">
+          <div class="form-hint">The handle of the Statamic collection to publish into (e.g. <code>articles</code>)</div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Default Category</label>
+            <input type="text" id="fStatamicCategory" class="form-control" placeholder="Software Development">
+            <div class="form-hint">Exact category name to auto-select (leave blank to pick first available)</div>
+          </div>
         </div>
       </div>
+
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Context Folder Path</label>
@@ -146,9 +191,10 @@
           <input type="text" id="fRulesPath" class="form-control" placeholder="./rules/vc_blog_generation.md">
         </div>
       </div>
-      <div class="flex gap-2 mt-3">
+      <div class="flex gap-2 mt-3" style="flex-wrap:wrap">
         <button type="submit" class="btn btn-primary" id="saveBtn">Save Configuration</button>
         <button type="button" id="testWpBtn" class="btn btn-secondary" onclick="testConnection()">🔌 Test WP Connection</button>
+        <button type="button" id="testSmBtn" class="btn btn-secondary" onclick="testStatamicConnection()" style="display:none">🔌 Test Statamic</button>
         <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
       </div>
     </form>
@@ -176,20 +222,29 @@ async function loadConfigs() {
     list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">No blog configurations yet. Click "+ Add Blog" to add one.</div>';
     return;
   }
-  list.innerHTML = data.configs.map(c => `
+  list.innerHTML = data.configs.map(c => {
+    const platform = c.publishing_platform || 'wordpress';
+    const platformBadge = platform === 'statamic'
+      ? '<span class="badge" style="background:var(--teal,#0d9488);color:#fff;margin-left:6px">Statamic</span>'
+      : '<span class="badge" style="background:var(--info,#0ea5e9);color:#fff;margin-left:6px">WordPress</span>';
+    const siteUrl = platform === 'statamic' ? (c.statamic_url || '—') : (c.wp_url || '—');
+    const methodInfo = platform === 'statamic'
+      ? `Collection: ${c.statamic_collection || 'not set'}`
+      : `Method: ${c.wp_method}`;
+    return `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--border)">
       <div>
-        <div style="font-weight:500">${c.name} <span class="badge badge-${c.is_active?'drafted':'skipped'}" style="margin-left:6px">${c.is_active?'Active':'Inactive'}</span></div>
-        <div class="text-small text-muted mt-2">${c.wp_url} · Method: ${c.wp_method} · Context: ${c.context_path||'none'}</div>
+        <div style="font-weight:500">${escHtml(c.name)} <span class="badge badge-${c.is_active?'drafted':'skipped'}" style="margin-left:6px">${c.is_active?'Active':'Inactive'}</span>${platformBadge}</div>
+        <div class="text-small text-muted mt-2">${escHtml(siteUrl)} · ${escHtml(methodInfo)} · Context: ${escHtml(c.context_path||'none')}</div>
       </div>
       <div class="flex gap-2" style="align-items:center">
         <span id="test-result-${c.id}" style="font-size:11px"></span>
-        <button class="btn btn-secondary btn-sm" onclick="quickTestConfig(${c.id}, this)" title="Test WP connection">🔌 Test</button>
+        <button class="btn btn-secondary btn-sm" onclick="quickTestConfig(${c.id}, this)" title="Test connection">🔌 Test</button>
         <button class="btn btn-secondary btn-sm" onclick="editConfig(${c.id})">Edit</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteConfig(${c.id}, '${c.name}')">Delete</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteConfig(${c.id}, '${escHtml(c.name)}')">Delete</button>
       </div>
-    </div>
-  `).join('') + '<div style="padding-top:4px"></div>';
+    </div>`;
+  }).join('') + '<div style="padding-top:4px"></div>';
 }
 
 function openAddModal() {
@@ -197,7 +252,9 @@ function openAddModal() {
   document.getElementById('modalTitle').textContent = 'Add Blog Configuration';
   document.getElementById('blogForm').reset();
   document.getElementById('fSlug').disabled = false;
+  document.getElementById('fPlatform').value = 'wordpress';
   document.getElementById('modalAlert').innerHTML = '';
+  togglePlatformFields();
   toggleAppPassword();
   document.getElementById('blogModal').classList.remove('hidden');
 }
@@ -212,16 +269,23 @@ async function editConfig(id) {
   document.getElementById('fSlug').disabled = true;
   document.getElementById('fName').value = c.name;
   document.getElementById('fDomain').value = c.domain;
-  document.getElementById('fWpUrl').value = c.wp_url;
-  document.getElementById('fWpUser').value = c.wp_username;
+  document.getElementById('fWpUrl').value = c.wp_url || '';
+  document.getElementById('fWpUser').value = c.wp_username || '';
   document.getElementById('fWpPass').value = '';
-  document.getElementById('fWpMethod').value = c.wp_method;
+  document.getElementById('fWpMethod').value = c.wp_method || 'api';
   document.getElementById('fWpAppPass').value = '';
-  document.getElementById('fCategory').value = c.wp_category;
-  document.getElementById('fAuthorId').value = c.wp_author_id;
+  document.getElementById('fCategory').value = c.wp_category || '1';
+  document.getElementById('fAuthorId').value = c.wp_author_id || 1;
   document.getElementById('fContextPath').value = c.context_path || '';
   document.getElementById('fRulesPath').value = c.rules_path || '';
+  document.getElementById('fPlatform').value = c.publishing_platform || 'wordpress';
+  document.getElementById('fStatamicUrl').value = c.statamic_url || '';
+  document.getElementById('fStatamicUsername').value = c.statamic_cp_username || '';
+  document.getElementById('fStatamicToken').value = '';
+  document.getElementById('fStatamicCollection').value = c.statamic_collection || '';
+  document.getElementById('fStatamicCategory').value   = c.statamic_category || '';
   document.getElementById('modalAlert').innerHTML = '';
+  togglePlatformFields();
   toggleAppPassword();
   document.getElementById('blogModal').classList.remove('hidden');
 }
@@ -231,11 +295,21 @@ function toggleAppPassword() {
   document.getElementById('appPasswordGroup').style.display = method === 'api' ? '' : 'none';
 }
 
+function togglePlatformFields() {
+  const platform = document.getElementById('fPlatform').value;
+  const isStatamic = platform === 'statamic';
+  document.getElementById('wpFields').style.display       = isStatamic ? 'none' : '';
+  document.getElementById('statamicFields').style.display = isStatamic ? ''     : 'none';
+  document.getElementById('testWpBtn').style.display      = isStatamic ? 'none' : '';
+  document.getElementById('testSmBtn').style.display      = isStatamic ? ''     : 'none';
+}
+
 document.getElementById('blogForm').addEventListener('submit', async e => {
   e.preventDefault();
   const btn = document.getElementById('saveBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Saving...';
 
+  const platform = document.getElementById('fPlatform').value;
   const body = {
     slug: document.getElementById('fSlug').value.trim().toLowerCase(),
     name: document.getElementById('fName').value.trim(),
@@ -248,9 +322,16 @@ document.getElementById('blogForm').addEventListener('submit', async e => {
     wp_author_id: parseInt(document.getElementById('fAuthorId').value) || 1,
     context_path: document.getElementById('fContextPath').value.trim(),
     rules_path: document.getElementById('fRulesPath').value.trim(),
+    publishing_platform: platform,
+    statamic_url: document.getElementById('fStatamicUrl').value.trim(),
+    statamic_cp_username: document.getElementById('fStatamicUsername').value.trim(),
+    statamic_collection: document.getElementById('fStatamicCollection').value.trim(),
+    statamic_category:   document.getElementById('fStatamicCategory').value.trim(),
   };
   const pass = document.getElementById('fWpPass').value;
   if (pass) body.wp_password = pass;
+  const smToken = document.getElementById('fStatamicToken').value;
+  if (smToken) body.statamic_api_token = smToken;
 
   let data;
   if (editingId) {
@@ -286,11 +367,31 @@ async function testConnection() {
   }
 }
 
+async function testStatamicConnection() {
+  if (!editingId) {
+    showAlert(document.getElementById('modalAlert'), 'Save the configuration first, then test the connection.', 'warning');
+    return;
+  }
+  const btn = document.getElementById('testSmBtn');
+  btn.disabled = true; btn.textContent = 'Testing...';
+  const data = await API.post(`/api/configs/${editingId}/test-statamic`);
+  btn.disabled = false; btn.textContent = '🔌 Test Statamic';
+  if (data && data.ok) {
+    showAlert(document.getElementById('modalAlert'), `✅ Statamic connected! Collection/site: "${data.name}"`, 'success');
+  } else {
+    showAlert(document.getElementById('modalAlert'), `❌ Statamic connection failed: ${data?.error || 'Unknown error'}`, 'error');
+  }
+}
+
 async function quickTestConfig(id, btn) {
   const result = document.getElementById(`test-result-${id}`);
   btn.disabled = true; btn.textContent = '…';
   result.textContent = '';
-  const data = await API.post(`/api/configs/${id}/test`);
+  // Determine platform from the config we already have in the rendered list
+  const configRow = btn.closest('div[style*="border-bottom"]');
+  const isStatamic = configRow && configRow.innerHTML.includes('Statamic');
+  const endpoint = isStatamic ? `/api/configs/${id}/test-statamic` : `/api/configs/${id}/test`;
+  const data = await API.post(endpoint);
   btn.disabled = false; btn.textContent = '🔌 Test';
   if (data?.ok) {
     result.innerHTML = `<span style="color:var(--success)">✓ Connected</span>`;

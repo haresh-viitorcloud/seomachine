@@ -101,6 +101,10 @@ function imageSpecForBlog(blog = {}) {
   // logo.svg is overlaid afterward (the prompt forbids an AI-drawn logo).
   const isLc = slug === 'lc' || slug === 'laracopilot'
     || /\/blogs\/laracopilot(\/|$)/.test(ctx) || name.includes('laracopilot');
+  // Devlyn: high-res glassmorphism 3D banner with code-composited title overlay.
+  // 1520×760 matches the existing hand-crafted cover images in the asset library.
+  const isDevlyn = slug === 'devlyn' || /\/blogs\/devlyn(\/|$)/.test(ctx) || name.includes('devlyn');
+  if (isDevlyn) return { width: 1520, height: 760, devlynStyle: true, logoBacking: false, bright: false, preferStock: false, banner: false };
   return isVc
     ? { width: 1520, height: 1008, logoBacking: false,        bright: true,  preferStock: false, banner: false }
     : { width: 1200, height: 630,  logoBacking: !naturalLogo, bright: false, preferStock: false, banner: isLc };
@@ -132,6 +136,88 @@ function wrapText(text, maxChars) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Devlyn glassmorphism title overlay
+// Composites a frosted-glass panel + category badge + bold headline onto any
+// background image.  Matches the style of the hand-crafted Devlyn covers:
+// white semi-transparent panel, teal category badge, dark bold title text.
+// Returns a PNG Buffer (lossless, high-quality) so the Statamic asset library
+// receives an image comparable to the 977 KB reference covers.
+// ─────────────────────────────────────────────────────────────────────────────
+async function compositeDevlynOverlay(bgBuffer, title, category, W = 1520, H = 760) {
+  try {
+    const sharp = require('sharp');
+
+    // Resize and ensure PNG baseline
+    let base = await sharp(bgBuffer)
+      .resize(W, H, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
+      .png()
+      .toBuffer();
+
+    // ── Panel geometry (center-left, matches reference proportions) ──
+    const panelW  = Math.round(W * 0.385);   // ~585 px @ 1520
+    const panelH  = Math.round(H * 0.50);    // ~380 px @ 760
+    const panelX  = Math.round(W * 0.143);   // ~217 px from left
+    const panelY  = Math.round(H * 0.215);   // ~163 px from top
+    const rx      = Math.round(H * 0.018);   // ~14 px corner radius
+    const panelCX = panelX + Math.round(panelW / 2);  // horizontal centre of panel
+
+    // ── Typography ──
+    const titleFontSize = Math.round(H * 0.062);       // ~47 px @ 760
+    const titleLineH    = Math.round(titleFontSize * 1.30);
+    const badgeFontSize = Math.round(H * 0.0175);      // ~13 px
+    const badgePadX     = Math.round(badgeFontSize * 1.1);
+    const badgeH        = Math.round(badgeFontSize * 2.15);
+
+    // ── Category badge ──
+    const catLabel   = (category || 'TECHNOLOGY').toUpperCase().substring(0, 24);
+    // Approximate text width: bold Arial at badgeFontSize, letter-spacing ~1.8
+    const charWidth  = badgeFontSize * 0.67;
+    const catTextW   = catLabel.length * charWidth + catLabel.length * 1.8;
+    const badgeW     = Math.ceil(catTextW + badgePadX * 2);
+    const badgeX     = panelCX - Math.round(badgeW / 2);
+    const badgeTop   = panelY + Math.round(panelH * 0.080);
+    const badgeTextY = badgeTop + Math.round(badgeH * 0.68);
+
+    // ── Title text — wrap to fit panel width ──
+    // Arial Bold: ~0.58 × fontSize per character width
+    const charsPerLine = Math.max(12, Math.floor(panelW * 0.88 / (titleFontSize * 0.58)));
+    const titleLines   = wrapText(title, charsPerLine).slice(0, 4);
+    const totalTitleH  = titleLines.length * titleLineH;
+    const badgeBottom  = badgeTop + badgeH;
+    const remainH      = (panelY + panelH) - badgeBottom - Math.round(panelH * 0.06);
+    const textStartY   = badgeBottom + Math.round((remainH - totalTitleH) / 2) + titleFontSize;
+
+    const titleSvg = titleLines.map((ln, i) =>
+      `<text x="${panelCX}" y="${textStartY + i * titleLineH}"` +
+      ` font-family="Arial, Helvetica, sans-serif" font-size="${titleFontSize}"` +
+      ` font-weight="700" fill="#0f172a" text-anchor="middle">${escXml(ln)}</text>`
+    ).join('');
+
+    const svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${panelX}" y="${panelY}" width="${panelW}" height="${panelH}" rx="${rx}" ry="${rx}"
+        fill="rgba(255,255,255,0.84)" stroke="rgba(255,255,255,0.70)" stroke-width="1.5"/>
+      <rect x="${badgeX}" y="${badgeTop}" width="${badgeW}" height="${badgeH}" rx="${Math.round(badgeH/2)}" ry="${Math.round(badgeH/2)}"
+        fill="rgba(0,213,170,0.18)" stroke="rgba(0,185,150,0.50)" stroke-width="1"/>
+      <text x="${panelCX}" y="${badgeTextY}"
+        font-family="Arial, Helvetica, sans-serif" font-size="${badgeFontSize}"
+        font-weight="600" fill="#007a65" text-anchor="middle" letter-spacing="1.8">${escXml(catLabel)}</text>
+      ${titleSvg}
+    </svg>`;
+
+    const out = await sharp(base)
+      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+      .png()
+      .toBuffer();
+
+    console.log(`[ImageService] Devlyn overlay applied: ${Math.round(out.length / 1024)}KB PNG`);
+    return out;
+  } catch (err) {
+    console.warn('[ImageService] Devlyn overlay failed:', err.message);
+    return bgBuffer;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Source 1 — Pollinations.ai (free AI image generation, no API key required)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -154,14 +240,29 @@ function wrapText(text, maxChars) {
  *   (ViitorCloud) instead of the default dark-cinematic aesthetic.
  */
 async function fetchPollinationsImage(imagePrompt, opts = {}) {
-  const { width = 1200, height = 630, bright = false } = opts;
+  const { width = 1200, height = 630, bright = false, devlynStyle = false } = opts;
   try {
     const topic = (imagePrompt || 'professional technology concept').substring(0, 800);
 
-    // Build a style-augmented prompt: preserve the subject from Claude's image_prompt
-    // and append style directives. ViitorCloud uses a bright, clean, airy aesthetic;
-    // all other blogs keep the dark-cinematic look.
-    const styleDirectives = bright
+    // Build a style-augmented prompt.
+    // devlynStyle  → clean 3D glassmorphism with teal accents; title composited later via code
+    // bright       → ViitorCloud bright/airy commercial photograph
+    // default      → dark cinematic 3D illustration
+    const styleDirectives = devlynStyle
+      ? [
+          '3D isometric glassmorphism tech scene',
+          'clean white light grey minimal background',
+          'frosted translucent glass panels floating in the scene',
+          'teal mint green colored accent elements and decorative shapes',
+          'small decorative 3D geometric plants and leaves in teal',
+          'abstract data visualization charts cubes spheres',
+          'modern SaaS technology aesthetic',
+          '3D render high quality sharp crisp',
+          'center area mostly clear and uncluttered',
+          'professional commercial illustration',
+          'no text no words no letters no labels no numbers no watermarks',
+        ]
+      : bright
       ? [
           'ultra clean high-end commercial photograph, crisp razor-sharp focus, high resolution, immaculate detail',
           'real people, modern professionals interacting naturally with confident genuine expressions',
@@ -185,43 +286,45 @@ async function fetchPollinationsImage(imagePrompt, opts = {}) {
           'upper left corner visually calm',
           'no text no words no letters no labels',
         ];
-    // ViitorCloud: append the requested instruction immediately after Claude's
-    // content-derived subject, then the style/no-text directives (the trailing
-    // "no text" directive reinforces "Do not add text into it" so the size numbers
-    // in the instruction don't get rendered as on-image text).
+
     const VC_INSTRUCTION = 'based on the blog content, create an image of size 1520 x 1008. Do not add text into it';
-    const promptParts = bright
+    const DEVLYN_INSTRUCTION = 'based on the blog topic, create a clean 3D glassmorphism background at 1520 x 760. Do not add any text into it';
+    const promptParts = devlynStyle
+      ? [topic, DEVLYN_INSTRUCTION, ...styleDirectives]
+      : bright
       ? [topic, VC_INSTRUCTION, ...styleDirectives]
       : [topic, ...styleDirectives];
     const fullPrompt = promptParts.join(', ');
 
     const encoded = encodeURIComponent(fullPrompt);
-    // seed makes each article get a unique image; nologo removes Pollinations watermark
     const seed = Math.floor(Math.random() * 9999999);
     const url = `https://image.pollinations.ai/prompt/${encoded}?width=${width}&height=${height}&nologo=true&model=flux&seed=${seed}`;
 
     console.log('[ImageService] Pollinations.ai generating image (Flux)...');
-    const rawBuffer = await downloadImage(url, 90000);  // up to 90s for generation
+    const rawBuffer = await downloadImage(url, 90000);
     if (!rawBuffer || rawBuffer.length < 20000) {
       console.warn('[ImageService] Pollinations returned empty/tiny response');
       return null;
     }
 
     const sharp = require('sharp');
-    // Pollinations' free tier caps output resolution (~0.6 MP), so it returns a
-    // smaller image at the requested ASPECT (e.g. 943×625 for a 1520×1008 request).
-    // Upscale to the exact target with a high-quality kernel + light sharpening so
-    // the result stays crisp (soft upscales read as "stretched"). Aspect is
-    // preserved by `cover`, so there is no geometric distortion.
     let pipeline = sharp(rawBuffer)
       .resize(width, height, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 });
-    if (bright) pipeline = pipeline.modulate({ brightness: 1.06, saturation: 1.04 });
-    // Sharper for the "clean/clear" look the brand wants (counters free-tier upscale softness)
-    pipeline = pipeline.sharpen({ sigma: bright ? 1.3 : 1 });
-    let buffer = await pipeline.webp({ quality: 82 }).toBuffer();
+    if (bright)       pipeline = pipeline.modulate({ brightness: 1.06, saturation: 1.04 });
+    if (devlynStyle)  pipeline = pipeline.modulate({ brightness: 1.02, saturation: 1.05 }); // slight pop for glass clarity
+    pipeline = pipeline.sharpen({ sigma: (bright || devlynStyle) ? 1.3 : 1 });
 
-    if (buffer.length > 100 * 1024) {
-      buffer = await sharp(buffer).webp({ quality: 60 }).toBuffer();
+    // devlynStyle: return high-quality PNG so the caller can composite the title overlay
+    // without lossy re-encode artefacts; the final output will be PNG (no size cap).
+    // Other styles: keep existing webp + 100 KB cap behaviour unchanged.
+    let buffer;
+    if (devlynStyle) {
+      buffer = await pipeline.png({ compressionLevel: 8 }).toBuffer();
+    } else {
+      buffer = await pipeline.webp({ quality: 82 }).toBuffer();
+      if (buffer.length > 100 * 1024) {
+        buffer = await sharp(buffer).webp({ quality: 60 }).toBuffer();
+      }
     }
 
     console.log(`[ImageService] Pollinations image: ${buffer.length} bytes`);
@@ -911,10 +1014,24 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
     return false;
   };
   // AI generation via Pollinations (free, no key) — the realism-prompted fallback.
+  // For Devlyn (devlynStyle), also composites the title + category badge on top.
   const tryAi = async () => {
     try {
-      const aiBuffer = await fetchPollinationsImage(imagePrompt || keyword, { width: spec.width, height: spec.height, bright: spec.bright });
-      if (aiBuffer) { buffer = aiBuffer; source = 'pollinations'; return true; }
+      const aiBuffer = await fetchPollinationsImage(imagePrompt || keyword, {
+        width: spec.width, height: spec.height, bright: spec.bright, devlynStyle: !!spec.devlynStyle,
+      });
+      if (aiBuffer) {
+        if (spec.devlynStyle) {
+          const cat = blog.statamic_category || blog.wp_category_name || '';
+          const composited = await compositeDevlynOverlay(aiBuffer, title, cat, spec.width, spec.height);
+          buffer = composited || aiBuffer;
+          source = 'devlyn-banner'; // skip logo-composite step below (title panel already rendered)
+        } else {
+          buffer = aiBuffer;
+          source = 'pollinations';
+        }
+        return true;
+      }
     } catch { /* fallthrough */ }
     return false;
   };
@@ -965,28 +1082,41 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
   };
 
   const blogSlug = String(blog.slug || '').toLowerCase();
-  // Strict-Codex blogs (default: vc, everycred, everyticket) use ONLY the Codex image_gen
-  // banner — Codex draws the background (auto per-topic for everycred/everyticket; see
-  // BRANDS.autoBg) + text, and the real logo.svg is composited on top (never AI-drawn).
-  // No OpenAI/Pollinations/stock fallback; if Codex fails after its retries, the sole
-  // fallback is the brand SVG gradient. Override via STRICT_CODEX_BLOGS.
-  const strictCodexBlogs = (process.env.STRICT_CODEX_BLOGS || 'vc,everycred,everyticket')
+
+  // Strict-Codex: Codex image_gen ONLY — no OpenAI/Pollinations/stock fallback.
+  // Only gradient if Codex fails. Reserved for blogs where no other source is acceptable.
+  // Default: empty. Override via STRICT_CODEX_BLOGS env var.
+  const strictCodexBlogs = (process.env.STRICT_CODEX_BLOGS || '')
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
+  // Codex-preferred: try Codex image_gen first; if unavailable or fails, fall through
+  // to the same full chain used by VC/EveryCRED (OpenAI → Pollinations → stock → gradient).
+  // This ensures the blog always gets a real image even when the Codex CLI is unavailable.
+  // Default: devlyn. Override via CODEX_PREFERRED_BLOGS env var.
+  const codexPreferredBlogs = (process.env.CODEX_PREFERRED_BLOGS || 'devlyn')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
   // Brand-banner blogs render over their own BG PNGs via code-composite (no AI). Off by
   // default now; enable per blog via BRAND_BANNER_BLOGS if you want the BG-image style.
   const brandBannerBlogs = (process.env.BRAND_BANNER_BLOGS || '')
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
-  // Order: brand-banner blogs → BG render only; strict-Codex blogs → Codex only;
-  // everyone else → Codex banner → OpenAI (if key) → per-blog free sources.
+  // Order:
+  //   brand-banner       → BG render only
+  //   strict-Codex       → Codex only (gradient if Codex fails)
+  //   codex-preferred    → Codex first, then OpenAI → Pollinations → stock (same as VC/EveryCRED)
+  //   everyone else      → OpenAI (if key) → Pollinations → stock (NO Codex)
   const hasOpenAI = !!(process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY);
+  const standardChain = [...(hasOpenAI ? [tryOpenAI] : []), ...(spec.preferStock ? [tryStock, tryAi] : [tryAi, tryStock])];
   let order;
   if (brandBannerBlogs.includes(blogSlug)) {
     order = [tryBrandBanner];
   } else if (strictCodexBlogs.includes(blogSlug)) {
     order = [tryCodex];
+  } else if (codexPreferredBlogs.includes(blogSlug)) {
+    order = [tryCodex, ...standardChain];
   } else {
-    order = [tryCodex, ...(hasOpenAI ? [tryOpenAI] : []), ...(spec.preferStock ? [tryStock, tryAi] : [tryAi, tryStock])];
+    order = standardChain;
   }
   for (const attempt of order) {
     if (!buffer) await attempt();
@@ -995,7 +1125,8 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
   // ── Final fallback: SVG gradient (always works, no network/keys) ──
   if (!buffer) {
     if (brandBannerBlogs.includes(blogSlug)) console.warn('[ImageService] Brand-banner blog but BG render failed — using brand SVG gradient.');
-    else if (strictCodexBlogs.includes(blogSlug)) console.warn('[ImageService] Strict-Codex blog but Codex failed after retries — using brand SVG gradient (NOT a generic AI image).');
+    else if (strictCodexBlogs.includes(blogSlug)) console.warn('[ImageService] Strict-Codex blog: Codex failed, no other source configured — using brand SVG gradient.');
+    else if (codexPreferredBlogs.includes(blogSlug)) console.warn('[ImageService] Codex-preferred blog: Codex + all fallbacks failed — using brand SVG gradient.');
     const brandName  = blog.name ? blog.name.replace(/\s+blog$/i, '').trim() : '';
     const brandDomain = blog.domain || '';
     buffer = await generateFeaturedImage(title, keyword, theme, brandName, brandDomain, spec.width, spec.height);
@@ -1004,7 +1135,7 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
 
   // ── Logo composite: applied to ALL sources EXCEPT banners that already have the
   // real logo overlaid in-place (LaraCopilot OpenAI banner, Codex banner, brand banner). ──
-  if (source !== 'openai-banner' && source !== 'codex-banner' && source !== 'brand-banner') {
+  if (source !== 'openai-banner' && source !== 'codex-banner' && source !== 'brand-banner' && source !== 'devlyn-banner') {
     // Premium (VC) or any OpenAI-sourced image keeps higher webp quality + a larger
     // size ceiling so the clean detail survives; free/stock sources keep the lean target.
     const premium = spec.bright || source === 'openai';
