@@ -572,9 +572,14 @@ function renderJobRow(j, blogName, blogPlatform) {
   const platformBtnStyle = isStatamic
     ? 'font-size:11px;background:rgba(13,148,136,.18);color:#2dd4bf;border:1px solid rgba(13,148,136,.35)'
     : 'font-size:11px';
-  const wpLink = (j.wp_post_id && safeUrl(j.wp_post_url))
-    ? `<a href="${safeUrl(j.wp_post_url)}" target="_blank" rel="noopener" class="btn btn-success btn-sm" style="${platformBtnStyle}">${platformPrefix} #${j.wp_post_id}</a>${imgSrcBadge}`
-    : (j.wp_post_id ? `<span class="text-muted" style="font-size:11px">${platformPrefix} #${j.wp_post_id}</span>${imgSrcBadge}` : '<span class="text-muted" style="font-size:11px">—</span>');
+  // When wp_post_id is a raw URL (Statamic fallback when entry ID wasn't extracted),
+  // show "View" instead of the full URL to prevent table overflow.
+  const postIdIsUrl = j.wp_post_id && /^https?:\/\//.test(j.wp_post_id);
+  const postLabel = postIdIsUrl ? 'View' : (j.wp_post_id ? `#${j.wp_post_id}` : '');
+  const linkHref = safeUrl(j.wp_post_url) || (postIdIsUrl ? safeUrl(j.wp_post_id) : '');
+  const wpLink = (j.wp_post_id && linkHref)
+    ? `<a href="${linkHref}" target="_blank" rel="noopener" class="btn btn-success btn-sm" style="${platformBtnStyle}">${platformPrefix} ${postLabel}</a>${imgSrcBadge}`
+    : (j.wp_post_id ? `<span class="text-muted" style="font-size:11px">${platformPrefix} ${postLabel}</span>${imgSrcBadge}` : '<span class="text-muted" style="font-size:11px">—</span>');
 
   const actions = buildActions(j);
 
@@ -599,7 +604,7 @@ function renderJobRow(j, blogName, blogPlatform) {
       <td style="font-size:12px;white-space:nowrap;color:var(--text-muted)">${fmtDateShort(j.scheduled_at)}</td>
       <td>${statusBadge}${elapsedHtml}</td>
       <td style="font-size:11px;color:var(--text-muted);white-space:nowrap">${j.cost_usd > 0 ? '$'+j.cost_usd.toFixed(4) : '—'}</td>
-      <td>${wpLink}</td>
+      <td style="max-width:130px;overflow:hidden">${wpLink}</td>
       <td onclick="event.stopPropagation()"><div class="action-group">${actions}</div></td>
     </tr>
     <tr class="log-panel-row" id="logs-${j.id}">

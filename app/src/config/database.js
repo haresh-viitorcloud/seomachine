@@ -135,6 +135,7 @@ function initializeDatabase() {
     "ALTER TABLE blog_configs ADD COLUMN statamic_cp_username TEXT DEFAULT ''",
     "ALTER TABLE blog_configs ADD COLUMN statamic_blueprint TEXT DEFAULT 'article'",
     "ALTER TABLE blog_configs ADD COLUMN statamic_site TEXT DEFAULT 'default'",
+    "ALTER TABLE blog_configs ADD COLUMN statamic_category TEXT DEFAULT ''",
   ];
   for (const sql of migrations) {
     // Only swallow the expected "duplicate column" case; surface any other failure

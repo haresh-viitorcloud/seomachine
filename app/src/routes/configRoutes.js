@@ -12,7 +12,7 @@ router.get('/api/configs', requireAuth, (req, res) => {
     SELECT id, slug, name, domain, wp_url, wp_username, wp_method, wp_category, wp_author_id,
            context_path, rules_path, is_active, created_at,
            publishing_platform, statamic_url, statamic_collection, statamic_cp_username,
-           statamic_blueprint, statamic_site
+           statamic_blueprint, statamic_site, statamic_category
     FROM blog_configs ORDER BY id ASC
   `).all();
   res.json({ configs });
@@ -24,7 +24,7 @@ router.get('/api/configs/:id', requireAuth, (req, res) => {
     SELECT id, slug, name, domain, wp_url, wp_username, wp_method, wp_category, wp_author_id,
            context_path, rules_path, is_active,
            publishing_platform, statamic_url, statamic_collection, statamic_cp_username,
-           statamic_blueprint, statamic_site
+           statamic_blueprint, statamic_site, statamic_category
     FROM blog_configs WHERE id = ?
   `).get(req.params.id);
   if (!config) return res.status(404).json({ error: 'Config not found' });
@@ -37,7 +37,7 @@ router.post('/api/configs', requireAuth, (req, res) => {
     slug, name, domain, wp_url, wp_login_url, wp_username, wp_password,
     wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path,
     publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
-    statamic_blueprint, statamic_site,
+    statamic_blueprint, statamic_site, statamic_category,
   } = req.body;
 
   const platform = publishing_platform || 'wordpress';
@@ -63,8 +63,8 @@ router.post('/api/configs', requireAuth, (req, res) => {
       slug, name, domain, wp_url, wp_login_url, wp_username, wp_password,
       wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path,
       publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
-      statamic_blueprint, statamic_site
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      statamic_blueprint, statamic_site, statamic_category
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     slug, name, domain,
     wp_url || '', wp_login_url || '', wp_username || '', wp_password || '',
@@ -73,13 +73,13 @@ router.post('/api/configs', requireAuth, (req, res) => {
     context_path || '', rules_path || '',
     platform,
     statamic_url || '', statamic_api_token || '', statamic_collection || '', statamic_cp_username || '',
-    statamic_blueprint || 'article', statamic_site || 'default'
+    statamic_blueprint || 'article', statamic_site || 'default', statamic_category || ''
   );
 
   const config = db.prepare(`
     SELECT id, slug, name, domain, wp_url, wp_username, wp_method, wp_category, context_path,
            publishing_platform, statamic_url, statamic_collection, statamic_cp_username,
-           statamic_blueprint, statamic_site
+           statamic_blueprint, statamic_site, statamic_category
     FROM blog_configs WHERE id = ?
   `).get(result.lastInsertRowid);
   res.status(201).json({ ok: true, config });
@@ -91,7 +91,7 @@ router.put('/api/configs/:id', requireAuth, (req, res) => {
     name, domain, wp_url, wp_login_url, wp_username, wp_method, wp_app_password,
     wp_category, wp_author_id, context_path, rules_path, is_active,
     publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
-    statamic_blueprint, statamic_site,
+    statamic_blueprint, statamic_site, statamic_category,
   } = req.body;
   const { wp_password } = req.body;
 
@@ -106,7 +106,7 @@ router.put('/api/configs/:id', requireAuth, (req, res) => {
       rules_path = ?, is_active = ?,
       publishing_platform = ?, statamic_url = ?, statamic_api_token = ?,
       statamic_collection = ?, statamic_cp_username = ?,
-      statamic_blueprint = ?, statamic_site = ?,
+      statamic_blueprint = ?, statamic_site = ?, statamic_category = ?,
       updated_at = datetime('now')
     WHERE id = ?
   `).run(
@@ -130,6 +130,7 @@ router.put('/api/configs/:id', requireAuth, (req, res) => {
     statamic_cp_username !== undefined ? statamic_cp_username : (existing.statamic_cp_username || ''),
     statamic_blueprint !== undefined ? statamic_blueprint : (existing.statamic_blueprint || 'article'),
     statamic_site !== undefined ? statamic_site : (existing.statamic_site || 'default'),
+    statamic_category !== undefined ? statamic_category : (existing.statamic_category || ''),
     req.params.id
   );
 

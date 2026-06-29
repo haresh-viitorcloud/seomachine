@@ -157,7 +157,7 @@ function seedBlogConfigsFromEnv() {
 
   for (const SLUG of slugs) {
     const slug = SLUG.toLowerCase();
-    const existing = db.prepare('SELECT id, wp_category, wp_author_id, statamic_cp_username, statamic_api_token, statamic_blueprint, statamic_site FROM blog_configs WHERE slug = ?').get(slug);
+    const existing = db.prepare('SELECT id, wp_category, wp_author_id, statamic_cp_username, statamic_api_token, statamic_blueprint, statamic_site, statamic_category FROM blog_configs WHERE slug = ?').get(slug);
     // Category/author are editable in the Settings UI. Env only overrides them when
     // explicitly set — an empty/missing env var keeps the UI-edited DB value instead
     // of resetting to '1' on every restart.
@@ -188,6 +188,7 @@ function seedBlogConfigsFromEnv() {
       envSmUsername || existing?.statamic_cp_username || '',
       process.env[`BLOG_${SLUG}_STATAMIC_BLUEPRINT`] || existing?.statamic_blueprint || 'article',
       process.env[`BLOG_${SLUG}_STATAMIC_SITE`] || existing?.statamic_site || 'default',
+      process.env[`BLOG_${SLUG}_STATAMIC_CATEGORY`] || existing?.statamic_category || '',
     ];
     if (!existing) {
       db.prepare(`
@@ -195,8 +196,8 @@ function seedBlogConfigsFromEnv() {
           slug, name, domain, wp_url, wp_login_url, wp_username, wp_password,
           wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path,
           publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
-          statamic_blueprint, statamic_site
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          statamic_blueprint, statamic_site, statamic_category
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(slug, ...vals);
       console.log(`[Setup] Blog config created from .env: ${slug} (${platform})`);
     } else {
@@ -206,7 +207,7 @@ function seedBlogConfigsFromEnv() {
           wp_password=?, wp_method=?, wp_app_password=?, wp_category=?,
           wp_author_id=?, context_path=?, rules_path=?,
           publishing_platform=?, statamic_url=?, statamic_api_token=?, statamic_collection=?, statamic_cp_username=?,
-          statamic_blueprint=?, statamic_site=?,
+          statamic_blueprint=?, statamic_site=?, statamic_category=?,
           updated_at=datetime('now')
         WHERE slug=?
       `).run(...vals, slug);

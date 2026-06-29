@@ -171,6 +171,13 @@
           <input type="text" id="fStatamicCollection" class="form-control" placeholder="articles">
           <div class="form-hint">The handle of the Statamic collection to publish into (e.g. <code>articles</code>)</div>
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Default Category</label>
+            <input type="text" id="fStatamicCategory" class="form-control" placeholder="Software Development">
+            <div class="form-hint">Exact category name to auto-select (leave blank to pick first available)</div>
+          </div>
+        </div>
       </div>
 
       <div class="form-row">
@@ -276,6 +283,7 @@ async function editConfig(id) {
   document.getElementById('fStatamicUsername').value = c.statamic_cp_username || '';
   document.getElementById('fStatamicToken').value = '';
   document.getElementById('fStatamicCollection').value = c.statamic_collection || '';
+  document.getElementById('fStatamicCategory').value   = c.statamic_category || '';
   document.getElementById('modalAlert').innerHTML = '';
   togglePlatformFields();
   toggleAppPassword();
@@ -318,6 +326,7 @@ document.getElementById('blogForm').addEventListener('submit', async e => {
     statamic_url: document.getElementById('fStatamicUrl').value.trim(),
     statamic_cp_username: document.getElementById('fStatamicUsername').value.trim(),
     statamic_collection: document.getElementById('fStatamicCollection').value.trim(),
+    statamic_category:   document.getElementById('fStatamicCategory').value.trim(),
   };
   const pass = document.getElementById('fWpPass').value;
   if (pass) body.wp_password = pass;
