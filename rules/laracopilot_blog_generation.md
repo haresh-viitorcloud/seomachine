@@ -12,7 +12,8 @@ LaraCopilot is an AI coding copilot for Laravel/PHP developers. The audience is 
 
 These publishing settings are fixed for the LaraCopilot blog and must be preserved on every article:
 
-- **FAQs → native "Blog FAQs" field (schema), never in the body.** Provide 4-6 FAQs in the `faq` field only. They are published into the WordPress theme's native **Blog FAQs** field as FAQPage structured data (schema) — do NOT write an FAQ section, "FAQ" heading, or the Q&As into the article body. The body ends with the conclusion + final CTA.
+- **FAQs → native "Blog FAQs" field (schema), never in the body.** Provide 4-6 FAQs in the `faq` field only. They are published into the WordPress theme's native **Blog FAQs** field as FAQPage structured data (schema) — do NOT write an FAQ section, "FAQ" heading, or the Q&As into the article body. The body ends with the conclusion.
+- **Final CTA is appended automatically — do NOT write your own.** The standard LaraCopilot CTA (a self-contained, inline-styled, clickable button linking to https://builder.laracopilot.com/register) is added to the end of every post by the publishing system. Do NOT write a closing CTA box, a styled callout, a `<button>`, or a "start your free trial" block at the end of the article. End the body with the conclusion paragraph only.
 - **Category → an EXISTING LaraCopilot category.** Set `category` to the single best-matching existing category from the list in "CATEGORY SELECTION" below. Never invent a new category.
 - **Featured image.** A 1200 x 630 photorealistic hero image is generated automatically from the blog content (no text in the image). Do not write image HTML in the body.
 - **Workflow / command pattern.** Run in order and do not break it: `/research` -> `/write` -> `/optimize` -> `/scrub`.
@@ -28,6 +29,9 @@ The context files are the ONLY source of truth for LaraCopilot specifics. Until 
 - Mini-stories must use clearly generic, unnamed developers ("a Laravel team lead at a mid-size SaaS") and illustrate a point — never present invented numbers as LaraCopilot's results.
 - If a claim cannot be supported by the context files or well-established public knowledge about Laravel/PHP, state it generally or leave it out. Accuracy beats persuasion.
 - It is fine to describe widely documented Laravel/PHP/AI-coding concepts from general knowledge (Eloquent, Artisan, Blade, testing, PSR standards, etc.).
+- **No unconfirmed trial terms.** Do NOT claim a "14-day free trial", "free trial", or "no credit card required" anywhere — trial terms are not confirmed. Use "Get started free" instead.
+- **Orivon is roadmap-only.** Do NOT present Orivon (or any other roadmap-only capability) as shippable, available today, or something the reader can "try on your own codebase". Only describe shipped, context-file-confirmed capabilities as usable now.
+- **Say "production-ready apps", not "code".** Describe what LaraCopilot produces as production-ready Laravel apps (models, migrations, controllers, CRUD, auth, tests), not merely "code".
 
 ---
 
@@ -102,24 +106,26 @@ Rules:
 **Mini-Stories (REQUIRED: 1-2 per article):**
 Each must have a generic, unnamed developer or team, a concrete situation, and a clear outcome that illustrates the point (50-150 words). Do not attribute invented metrics to LaraCopilot.
 
-**Contextual CTAs (REQUIRED: 2-3 per article):**
+**Contextual CTAs (1-2 soft, inline only — the final styled CTA is system-appended):**
 
-| Location | Type | Example |
+The strong end-of-post CTA is added automatically (see "Final CTA is appended automatically" above) — do NOT write it. Within the body you may add 1-2 SOFT, contextual CTAs as **inline text links only** (a linked sentence in prose), never a styled box, `<button>`, or `<div>`.
+
+| Location | Type | Example (inline text link) |
 |---|---|---|
-| After first value section (within ~500 words) | Soft | "Curious how this looks in a real Laravel project? [See LaraCopilot in action]" |
-| After a comparison or proof section | Medium | "Want to try it on your own codebase? Start with LaraCopilot free." |
-| End of article | Strong | "[Get started with LaraCopilot]" with a short reassurance line |
+| After first value section (within ~500 words) | Soft | "Curious how this looks in a real Laravel project? [See LaraCopilot in action](https://laracopilot.com)" |
+| After a comparison or proof section | Soft | "You can [generate a Laravel app from a prompt](https://laracopilot.com) and own the code." |
 
 Rules:
-- CTAs must connect to the surrounding section content.
-- Vary the format (inline text, bold callout, linked text).
-- The first CTA appears within the first 500 words.
-- Never use "Click here" as anchor text.
+- Soft CTAs must connect to the surrounding section content and be plain inline links.
+- All CTA links point to **https://laracopilot.com**.
+- CTA label/anchor uses action language like "Get started free" or "Try LaraCopilot Now" — never "Click here".
+- No trial claims ("14-day free trial", "no credit card required"); say "Get started free".
+- Do NOT add a styled CTA box/button in the body — the system appends the standard one at the end.
 
 ### 5. Conclusion (150-200 words)
 - Recap 3-5 key takeaways in fresh language (not copy-pasted from the intro).
-- Give the reader a clear next step.
-- End with a strong CTA and an empowering, forward-looking close.
+- Give the reader a clear next step in prose.
+- End with an empowering, forward-looking close. Do NOT write a CTA box/button here — the standard LaraCopilot CTA is appended automatically after the conclusion.
 
 ### 6. FAQ (REQUIRED — as Schema, NOT in the article body)
 - Provide 4-6 questions in natural language from real search queries / how developers actually phrase prompts.
@@ -145,7 +151,9 @@ Rules:
 - [ ] Key Takeaways block present (3-5 bullets)
 - [ ] 1-2 mini-stories (generic, no invented metrics)
 - [ ] At least one useful code example where relevant
-- [ ] 2-3 contextual CTAs (first within 500 words)
+- [ ] 1-2 SOFT inline-text CTAs only (no styled box/button in body); no closing CTA box (system appends it)
+- [ ] No trial claims ("14-day free trial" / "no credit card"); all CTA links point to laracopilot.com
+- [ ] Orivon / roadmap-only features not presented as available today
 - [ ] 3-5 internal links from internal-links-map
 - [ ] 2-3 external authority links (Laravel docs, PHP RFCs, reputable sources)
 - [ ] 1500+ words
@@ -209,9 +217,22 @@ Pick the one that best fits the post's primary topic and intent. Examples: a too
 - `<blockquote>` for the Key Takeaways block and pull quotes
 - `<pre><code>` for code blocks (with a language class where possible)
 - `<table>` with `<thead>` and `<tbody>` for comparison tables
-- Do NOT use `<div>`, `<span>`, inline styles, or JavaScript
+- Do NOT use `<div>`, `<span>`, inline styles, or JavaScript in the body (the body is semantic HTML; the one styled CTA is injected by the publishing system, not written by you)
 - Do NOT use em dashes
 - Do NOT use colons or semicolons in headings
+
+---
+
+## CTA, Links & Copy Rules (mandatory for every post)
+
+- **The standard end-of-post CTA is injected automatically** by the publishing system as a fully self-contained, inline-styled, clickable `<a>`-based block (rendered as a WordPress "Custom HTML" block, never a Paragraph block). It never depends on theme CSS classes (`cta-section-modern`, `cta-button-modern`, etc. — those are NOT loaded on laracopilot.com and would render as unstyled plain text). **Do not write this CTA yourself.**
+- **Never output a bare `<button>`** or a theme-class CTA box anywhere. A CTA action is always a clickable anchor `<a href="https://laracopilot.com">`.
+- **All CTA / product links point to https://laracopilot.com.**
+- **CTA label** is "Get started free" or "Try LaraCopilot Now". Never "Click here".
+- **No unconfirmed trial terms** — do not say "14-day free trial", "free trial", or "no credit card required". Use "Get started free".
+- **Say "production-ready apps", not just "code"** when describing what LaraCopilot produces (models, migrations, controllers, CRUD, auth, tests).
+- **Orivon and any roadmap-only capability are never described as available today** or as something the reader can use/try now.
+- **Brand CTA styling** (for reference; applied by the system): dark background `#1A1A1A`, button `#F53003`, text `#FBFAF7`, Instrument Sans, no em dashes.
 
 ---
 

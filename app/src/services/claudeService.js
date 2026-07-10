@@ -54,25 +54,38 @@ const spawn = crossSpawn;
 
 /**
  * Promise wrapper around the Claude CLI that mimics the parts of execFileAsync we use.
- * Buffers stdout/stderr, supports a timeout, and rejects on non-zero exit or spawn error.
- * @returns {Promise<{stdout: string, stderr: string}>}
+ * Buffers stdout/stderr and supports a timeout. Resolves with { stdout, stderr, code }
+ * once the claude process ends and REJECTS ONLY on a spawn error (e.g. ENOENT — binary
+ * not found) or timeout — never on a non-zero/null exit code. Callers judge success from
+ * the returned stdout/code, because on Windows the claude.cmd shim frequently reports a
+ * `null` exit code even on success. See checkCliStatus for how that verdict is used.
+ * @returns {Promise<{stdout: string, stderr: string, code: number|null}>}
  */
 function execClaudeAsync(args, opts = {}) {
   const { timeout, ...spawnOpts } = opts;
   return new Promise((resolve, reject) => {
     const proc = crossSpawn('claude', args, {
       env: { ...process.env, NO_COLOR: '1' },
+      // On Windows the `claude` global install is a `.cmd` shim. Without shell:true,
+      // cross-spawn launches the shim in a way that reports exit code `null` (and often
+      // empty stdout) even on success — so the `--version`/auth probes here throw and
+      // checkCliStatus wrongly reports installed:false ("No Claude connection available").
+      // The generation path (generateViaCli) already passes shell:true for this reason;
+      // the detection helper must match it. shell only affects Windows; POSIX is unchanged.
+      shell: process.platform === 'win32',
       ...spawnOpts,
     });
 
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let drainTimer = null;
 
     const finish = (fn, arg) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      if (drainTimer) clearTimeout(drainTimer);
       fn(arg);
     };
 
@@ -101,17 +114,29 @@ function execClaudeAsync(args, opts = {}) {
 
     proc.on('error', (err) => finish(reject, err));
 
-    proc.on('close', (code) => {
-      if (code === 0) return finish(resolve, { stdout, stderr });
-      finish(reject, new Error(stderr.trim() || `Claude CLI exited with code ${code}`));
+    // Resolve on 'exit' (the claude process itself ended) rather than only 'close'.
+    // 'close' waits for EVERY inherited stdio pipe to close, but the Claude CLI can leave
+    // a background grandchild (update/telemetry) holding the stdout pipe — so for a fast
+    // command like `--version` 'close' may never fire, hanging until the timeout. 'exit'
+    // fires when the claude process ends; give stdout a brief drain window to capture the
+    // final chunk, then resolve. Whichever of exit/close fires first wins (settled guard).
+    proc.on('exit', (code) => {
+      drainTimer = setTimeout(() => finish(resolve, { stdout, stderr, code }), 150);
     });
+    proc.on('close', (code) => finish(resolve, { stdout, stderr, code }));
   });
 }
 
-// Cache CLI status for 1 minute — short enough that a fresh login shows up quickly
+// Cache CLI status. A CONFIDENT verdict (auth confirmed true, or confirmed logged
+// out) is cached for 1 minute — short enough that a fresh login shows up quickly.
+// An UNCONFIRMED verdict (the auth probe failed transiently — timeout, rate-limit,
+// network blip — so we don't actually know) is cached for only a few seconds, so a
+// momentary blip never blocks generation for a whole minute. `_cliCacheExpiry` holds
+// the absolute expiry so each entry can carry its own TTL.
 let _cliCache = null;
-let _cliCacheTime = 0;
+let _cliCacheExpiry = 0;
 const CLI_CACHE_TTL = 60 * 1000;
+const CLI_CACHE_TTL_UNCONFIRMED = 5 * 1000;
 
 // Lazy-load the Anthropic SDK only when API key mode is needed
 let _sdkClient = null;
@@ -713,10 +738,29 @@ function extractJsonField(text, key) {
  * Returns 'cli' or 'sdk'.
  */
 async function getGenerationMode() {
-  // Prefer CLI if available and authenticated
   const cliStatus = await checkCliStatus();
-  if (cliStatus.installed && cliStatus.authenticated) return 'cli';
-  // Fall back to SDK if API key is set
+
+  // Attempt the CLI when it's confirmed installed OR when we couldn't confirm its state
+  // (installedKnown === false). On Windows a fast `claude` probe is flaky (see
+  // checkCliStatus), so a failed probe must not be mistaken for an uninstalled CLI. The
+  // real generation call is the source of truth. Only defer to the SDK / hard-fail when
+  // we KNOW the CLI is absent.
+  if (cliStatus.installed || !cliStatus.installedKnown) {
+    // Same philosophy for auth: use the CLI when auth is confirmed OR unknown. If the
+    // session is genuinely logged out, generation surfaces the CLI's own accurate error
+    // (and a usage-limit is caught by detectUsageLimit → auto-resume) instead of being
+    // pre-empted by a stale/transient verdict. Only defer to SDK / hard-fail when we KNOW
+    // the CLI is logged out.
+    if (cliStatus.authenticated || !cliStatus.authKnown) return 'cli';
+    if (process.env.ANTHROPIC_API_KEY) return 'sdk';
+    throw new Error(
+      'Claude CLI is installed but not logged in. Either:\n' +
+      '  1. Run "claude" in your terminal to log in (recommended)\n' +
+      '  2. Set ANTHROPIC_API_KEY in your .env file'
+    );
+  }
+
+  // CLI confirmed not installed — fall back to SDK if an API key is set.
   if (process.env.ANTHROPIC_API_KEY) return 'sdk';
   throw new Error(
     'No Claude connection available. Either:\n' +
@@ -950,7 +994,10 @@ async function generateViaSeomachine(row, contextPath, rulesPath, onProgress, fe
 async function testConnection() {
   const cliStatus = await checkCliStatus();
 
-  if (cliStatus.installed && cliStatus.authenticated) {
+  // Try the CLI whenever it isn't CONFIRMED absent and isn't CONFIRMED logged out — this
+  // call is itself a definitive round-trip, so it's the real auth test (a stale/unconfirmed
+  // probe verdict must not short-circuit it to the SDK/none path).
+  if ((cliStatus.installed || !cliStatus.installedKnown) && (cliStatus.authenticated || !cliStatus.authKnown)) {
     // Test CLI
     try {
       const model = getActiveModel();
@@ -962,7 +1009,12 @@ async function testConnection() {
       ], {
         timeout: 60000,
       });
-      const raw = extractCliResult(result.stdout.trim());
+      // execClaudeAsync no longer rejects on a non-zero exit — treat an empty response or
+      // a non-zero exit code (with no usable output) as a failed connection test.
+      const raw = extractCliResult((result.stdout || '').trim());
+      if (!raw && result.code !== 0) {
+        return { ok: false, mode: 'cli', error: (result.stderr || '').trim() || `Claude CLI exited with code ${result.code}` };
+      }
       return { ok: true, mode: 'cli', model, response: raw.replace(/["`\n]/g, '').substring(0, 50) };
     } catch (err) {
       return { ok: false, mode: 'cli', error: err.message };
@@ -988,50 +1040,128 @@ async function testConnection() {
 }
 
 /**
+ * Locate the `claude` executable on PATH WITHOUT spawning it. A spawn of a fast command
+ * (like `--version`) is flaky on Windows — the claude.cmd shim can hang or return a null
+ * exit code — so we detect *installation* deterministically by finding the binary on PATH.
+ * Returns the full path if found, else null.
+ */
+function resolveClaudeBinary() {
+  try {
+    const envPath = process.env.PATH || process.env.Path || '';
+    const dirs = envPath.split(path.delimiter).filter(Boolean);
+    // On Windows the global install is claude.cmd / claude.ps1 (plus claude.exe on some
+    // setups); on POSIX it's a bare `claude`. Check each candidate extension per dir.
+    const exts = process.platform === 'win32' ? ['.cmd', '.exe', '.bat', '.ps1', ''] : [''];
+    for (const dir of dirs) {
+      for (const ext of exts) {
+        const candidate = path.join(dir, `claude${ext}`);
+        try { if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate; } catch { /* unreadable dir */ }
+      }
+    }
+  } catch { /* PATH unavailable */ }
+  return null;
+}
+
+/**
  * Checks Claude CLI installation and auth status.
- * Result is cached for 5 minutes to avoid slow re-checks on every HTTP request.
- * Call invalidateCLiCache() after a user explicitly re-authenticates.
- * Returns { installed, authenticated, version? }
+ * Result is cached briefly to avoid slow re-checks on every HTTP request.
+ * Call invalidateCliCache() after a user explicitly re-authenticates.
+ *
+ * `installedKnown` / `authKnown` distinguish "we confirmed this state" from "the probe
+ * failed for a reason unrelated to it, so we genuinely don't know". Callers must NOT
+ * treat installed:false / authenticated:false as definitive unless the matching *Known
+ * flag is true — on Windows a fast `claude` spawn is flaky (null exit codes, the shim's
+ * background grandchild keeps the pipe open so 'close' can hang), which must not be
+ * mistaken for an uninstalled or logged-out CLI. The real generation call is the source
+ * of truth. Returns { installed, installedKnown, authenticated, authKnown, version? }.
  */
 async function checkCliStatus() {
   const now = Date.now();
-  if (_cliCache && now - _cliCacheTime < CLI_CACHE_TTL) {
+  if (_cliCache && now < _cliCacheExpiry) {
     return _cliCache;
   }
 
-  const result = { installed: false, authenticated: false };
-  try {
-    const { stdout } = await execClaudeAsync(['--version'], { timeout: 5000 });
+  const result = { installed: false, installedKnown: false, authenticated: false, authKnown: false };
+  const cache = (ttl) => { _cliCache = result; _cliCacheExpiry = now + ttl; return result; };
+
+  // ── Installed: resolve the binary on PATH (deterministic — no flaky spawn) ──
+  // This is the primary signal so a hung/null `--version` spawn on Windows never shows up
+  // as "Not Installed" in the UI. Only fall back to a spawn probe when PATH resolution
+  // can't find it (e.g. a shell alias / shim not on the resolved PATH).
+  const binPath = resolveClaudeBinary();
+  if (binPath) {
     result.installed = true;
-    result.version = stdout.trim();
-  } catch {
-    _cliCache = result;
-    _cliCacheTime = now;
-    return result;
+    result.installedKnown = true;
+    // Version is cosmetic (shown as a subtitle). Fetch it best-effort with a short
+    // timeout; if the flaky spawn hangs, leave it blank — installed is already confirmed.
+    try {
+      const { stdout } = await execClaudeAsync(['--version'], { timeout: 4000 });
+      const v = (stdout || '').trim();
+      if (/\d+\.\d+/.test(v)) result.version = v;
+    } catch { /* flaky probe — version unknown, installed already confirmed via PATH */ }
+  } else {
+    // Not found on PATH — try a spawn probe before concluding it's absent.
+    try {
+      const { stdout } = await execClaudeAsync(['--version'], { timeout: 5000 });
+      if (/\d+\.\d+/.test(stdout || '')) {
+        result.installed = true;
+        result.installedKnown = true;
+        result.version = stdout.trim();
+      } else {
+        return cache(CLI_CACHE_TTL_UNCONFIRMED); // ran but ambiguous — don't confirm either way
+      }
+    } catch (err) {
+      if (err && err.code === 'ENOENT') {
+        result.installedKnown = true;            // genuinely not found — confirmed not installed
+        return cache(CLI_CACHE_TTL);
+      }
+      return cache(CLI_CACHE_TTL_UNCONFIRMED);     // timeout/hiccup — we don't know
+    }
   }
 
-  // Quick auth check — run a minimal prompt
+  // ── Auth probe — a minimal prompt. This is a FULL API round-trip, so it can fail for
+  // reasons that have nothing to do with auth: cold-start slowness, the 30s timeout, a
+  // transient rate-limit, or a network blip. Only a clear "not logged in" signal marks
+  // the session as unauthenticated; anything else stays "unknown" so a blip cannot
+  // masquerade as a logged-out session and block generation.
+  const AUTH_FAIL = /(please |run )?(\/)?log ?in|logged out|not logged in|authenticat|unauthor|invalid api key|expired|oauth|credential|\b401\b|\b403\b|forbidden/;
   try {
-    await execClaudeAsync([
+    const { stdout, stderr, code } = await execClaudeAsync([
       '-p', 'Hi',
       '--output-format', 'json',
       '--no-session-persistence',
     ], {
       timeout: 30000,
     });
-    result.authenticated = true;
-  } catch {
+    const combined = `${stdout} ${stderr}`.toLowerCase();
+    if (AUTH_FAIL.test(combined)) {
+      result.authenticated = false;
+      result.authKnown = true;
+      return cache(CLI_CACHE_TTL);
+    }
+    // A clean exit, or any non-empty JSON response, means the round-trip worked.
+    if (code === 0 || (stdout || '').trim().length > 0) {
+      result.authenticated = true;
+      result.authKnown = true;
+      return cache(CLI_CACHE_TTL);
+    }
+    // Resolved but empty/ambiguous — don't lock in a verdict.
+    return cache(CLI_CACHE_TTL_UNCONFIRMED);
+  } catch (err) {
+    const msg = String((err && err.message) || '').toLowerCase();
+    const looksUnauthed = AUTH_FAIL.test(msg);
     result.authenticated = false;
+    result.authKnown = looksUnauthed;
+    // Confident logged-out verdict caches for the full TTL; a transient/ambiguous
+    // failure (timeout, rate-limit, network) is cached only briefly so the very next
+    // generation attempt re-probes instead of being locked out for a whole minute.
+    return cache(looksUnauthed ? CLI_CACHE_TTL : CLI_CACHE_TTL_UNCONFIRMED);
   }
-
-  _cliCache = result;
-  _cliCacheTime = now;
-  return result;
 }
 
 function invalidateCliCache() {
   _cliCache = null;
-  _cliCacheTime = 0;
+  _cliCacheExpiry = 0;
 }
 
 /**

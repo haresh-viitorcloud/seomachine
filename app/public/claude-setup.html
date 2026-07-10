@@ -482,18 +482,33 @@ async function refreshStatus() {
   // CLI card
   const cli = data.cli;
   const cardCli = document.getElementById('cardCli');
+  // `installedKnown`/`authKnown` distinguish a CONFIRMED verdict from an unconfirmable
+  // (flaky) probe — on Windows a fast `claude` spawn can hang, so never show "Not
+  // Installed"/"Not Authenticated" unless the matching *Known flag is true.
+  const installedConfirmedAbsent = !cli.installed && cli.installedKnown;
+  const authConfirmedOut = cli.installed && !cli.authenticated && cli.authKnown;
   if (cli.installed && cli.authenticated) {
     cardCli.className = 'status-card mode-active';
     document.getElementById('cliValue').innerHTML = '<span class="text-success">✓ Connected</span>';
     document.getElementById('cliSub').textContent = cli.version || '';
-  } else if (cli.installed) {
+  } else if (cli.installed && authConfirmedOut) {
     cardCli.className = 'status-card mode-inactive';
     document.getElementById('cliValue').innerHTML = '<span class="text-warning">⚠ Not Authenticated</span>';
     document.getElementById('cliSub').textContent = 'Run "claude" in terminal to login';
-  } else {
+  } else if (cli.installed) {
+    // Installed but auth not confirmed either way (flaky probe) — generation still uses the CLI.
+    cardCli.className = 'status-card mode-active';
+    document.getElementById('cliValue').innerHTML = '<span class="text-success">✓ CLI Detected</span>';
+    document.getElementById('cliSub').textContent = cli.version ? `${cli.version} · login not verified` : 'Login not verified — generation will use the CLI';
+  } else if (installedConfirmedAbsent) {
     cardCli.className = 'status-card mode-inactive';
     document.getElementById('cliValue').innerHTML = '<span class="text-danger">✗ Not Installed</span>';
     document.getElementById('cliSub').textContent = 'npm install -g @anthropic-ai/claude-code';
+  } else {
+    // Couldn't confirm installation (transient probe failure) — don't cry "Not Installed".
+    cardCli.className = 'status-card mode-inactive';
+    document.getElementById('cliValue').innerHTML = '<span class="text-warning">⚠ Checking…</span>';
+    document.getElementById('cliSub').textContent = 'CLI status unverified — retrying';
   }
 
   // Active mode

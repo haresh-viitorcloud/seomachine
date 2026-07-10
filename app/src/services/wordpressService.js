@@ -202,13 +202,19 @@ async function postViaBrowser(config, content, rowData, onProgress) {
     const context = await browser.newContext({
       viewport: { width: 1280, height: 900 },
     });
+    // Some WP admins (heavy security firewall + SEO + ACF plugins) respond very slowly
+    // and inconsistently — individual admin pages here have been observed taking 30–85s.
+    // Give every navigation/action a generous default so a slow-but-successful page load
+    // isn't mistaken for a failure.
+    context.setDefaultNavigationTimeout(180000);
+    context.setDefaultTimeout(180000);
     const page = await context.newPage();
 
     // ── Login — support custom login URL ──
     if (onProgress) onProgress('Logging in to WordPress...');
     const loginUrl = config.wp_login_url
       || `${config.wp_url.replace(/\/$/, '')}/wp-login.php`;
-    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
     // Fill login form — try multiple selectors for non-standard login pages
     const userSelectors = ['#user_login', 'input[name="log"]', 'input[type="text"][name*="user"]', 'input[type="email"]'];
@@ -227,13 +233,20 @@ async function postViaBrowser(config, content, rowData, onProgress) {
     for (const sel of submitSelectors) {
       if (await page.$(sel)) { await page.click(sel); break; }
     }
-    await page.waitForURL(/wp-admin/, { timeout: 20000 });
+    // Wait for the dashboard to FULLY load before navigating onward. This admin server
+    // is slow (dashboard load alone observed at ~37s) and chokes when a second heavy
+    // admin page (post-new.php) is requested while the dashboard is still loading — that
+    // contention is what pushed post-new.php past every timeout. Waiting for 'load' here
+    // serializes the requests (one heavy admin page at a time), which is how this path
+    // worked reliably before the server slowed down. Timeout is generous to outlast slow
+    // phases; the original 20s default is what first started failing as the admin grew.
+    await page.waitForURL(/wp-admin/, { timeout: 120000, waitUntil: 'load' });
 
     if (onProgress) onProgress('Navigating to editor...');
 
     // ── Navigate to post-new.php first — this loads wpApiSettings (needed for nonce) ──
     const newPostUrl = `${config.wp_url.replace(/\/$/, '')}/wp-admin/post-new.php`;
-    await page.goto(newPostUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(newPostUrl, { waitUntil: 'domcontentloaded', timeout: 180000 });
 
     // ── Now check for existing post by same author (nonce is available after editor loads) ──
     const wpBase = `${config.wp_url.replace(/\/$/, '')}/wp-json/wp/v2`;
@@ -244,7 +257,7 @@ async function postViaBrowser(config, content, rowData, onProgress) {
       if (onProgress) onProgress(`Found existing post ID ${existingPostId} — updating instead of creating new`);
       // Navigate to the existing post editor
       const editorUrl = `${config.wp_url.replace(/\/$/, '')}/wp-admin/post.php?post=${existingPostId}&action=edit`;
-      await page.goto(editorUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(editorUrl, { waitUntil: 'domcontentloaded', timeout: 180000 });
     } else {
       if (onProgress) onProgress('No existing post found — creating new...');
       // Already on post-new.php — no redirect needed
@@ -258,7 +271,7 @@ async function postViaBrowser(config, content, rowData, onProgress) {
     try {
       await page.waitForFunction(
         () => !!(window.wp?.data?.select('core/editor')?.getCurrentPostId?.() && window.wp?.blocks?.parse),
-        { timeout: 20000 }
+        { timeout: 90000 }
       );
       isGutenberg = true;
     } catch {
@@ -280,7 +293,7 @@ async function postViaBrowser(config, content, rowData, onProgress) {
 
     // ── Get post ID — wait for Gutenberg to update the URL after first save ──
     try {
-      await page.waitForURL(/post=\d+/, { timeout: 8000 });
+      await page.waitForURL(/post=\d+/, { timeout: 30000 });
     } catch { /* URL may already contain post ID or save happened silently */ }
 
     const currentUrl = page.url();
@@ -424,8 +437,8 @@ async function fillGutenbergEditor(page, content, rowData, config, onProgress) {
   if (onProgress) onProgress('Saving draft...');
   await gutenbergSaveDraft(page);
 
-  // ── Wait for URL to contain post ID ──
-  try { await page.waitForURL(/post=\d+/, { timeout: 8000 }); } catch { /* ok */ }
+  // ── Wait for URL to contain post ID ── (generous: this admin's save round-trip is slow)
+  try { await page.waitForURL(/post=\d+/, { timeout: 30000 }); } catch { /* ok */ }
 
   // Read post ID from URL or wp.data
   let postId = null;
@@ -814,7 +827,7 @@ async function gutenbergSaveDraft(page) {
     const btn = await page.$(sel);
     if (btn) {
       await btn.click();
-      try { await page.waitForSelector('.editor-post-saved-state, .components-snackbar', { timeout: 8000 }); } catch { /* ok */ }
+      try { await page.waitForSelector('.editor-post-saved-state, .components-snackbar', { timeout: 30000 }); } catch { /* ok */ }
       await page.waitForTimeout(1000);
       return true;
     }
@@ -1357,6 +1370,17 @@ function injectCtas(html, content, opts) {
   // Blogs opted out in cta-config.json get no modern CTA banner (avoids inheriting
   // another brand's default image/branding); the inline CTA in the article is used.
   if (!ctaService.isCtaEnabled(opts.blogSlug)) return html;
+
+  // Standard-CTA blogs (e.g. laracopilot.com, whose theme lacks the cta-* CSS): append
+  // ONE self-contained, inline-styled, clickable <a>-based CTA at the end. The copy is
+  // fixed in cta-config.json (not model-generated), so it can't drift into unconfirmed
+  // claims, and the inline styles can't silently lose formatting on a theme change. We
+  // deliberately IGNORE the model's generated `ctas` here.
+  const standard = ctaService.getStandardCta(opts.blogSlug);
+  if (standard) {
+    return String(html).replace(/\s+$/, '') + '\n\n' + ctaService.buildInlineCtaHtml(standard);
+  }
+
   const ctas = Array.isArray(content.ctas) ? content.ctas : [];
   if (!ctas.length) return html;
   const imageUrl = ctaService.getImageUrl(opts.blogSlug, content.cta_category, opts.siteUrl);
@@ -1503,12 +1527,31 @@ function segmentToBlock(seg) {
     return `<!-- wp:separator -->\n<hr class="wp-block-separator"/>\n<!-- /wp:separator -->`;
   }
 
+  // Tables: emit with SELF-CONTAINED inline styles inside a scrollable wrapper, as a Custom
+  // HTML block. A bare <table> depends on the theme's table CSS (e.g. .wp-block-table) which
+  // some sites (laracopilot.com) don't apply to plain tables, so they render unformatted.
+  // Inline styles render identically regardless of theme.
+  if (tag === 'table') {
+    return `<!-- wp:html -->\n<div style="overflow-x:auto;">${styleTableHtml(seg)}</div>\n<!-- /wp:html -->`;
+  }
+
   // Bare inline content at the block level → wrap in a paragraph (renders, stays editable)
   if (INLINE_TAG.test(tag)) return `<!-- wp:paragraph -->\n<p>${seg}</p>\n<!-- /wp:paragraph -->`;
 
-  // table / pre / figure / div / anything else — keep as a valid raw-HTML block.
-  // (core/table markup is too strict to hand-roll; these are rare in generated content.)
+  // pre / figure / div / anything else — keep as a valid raw-HTML block.
   return `<!-- wp:html -->\n${seg}\n<!-- /wp:html -->`;
+}
+
+// Adds self-contained inline styling to a raw <table> (and its th/td) so it renders formatted
+// regardless of theme CSS. Idempotent: skips any tag that already has a style attribute.
+function styleTableHtml(html) {
+  const T  = 'width:100%;border-collapse:collapse;margin:24px 0;font-size:15px;line-height:1.5;';
+  const TH = 'border:1px solid #E5E2DC;padding:10px 14px;text-align:left;background:#F7F5F2;color:#1A1A1A;font-weight:700;';
+  const TD = 'border:1px solid #E5E2DC;padding:10px 14px;text-align:left;vertical-align:top;color:#1A1A1A;';
+  return String(html)
+    .replace(/<table\b((?:(?!style=)[^>])*)>/gi, `<table$1 style="${T}">`)
+    .replace(/<th\b((?:(?!style=)[^>])*)>/gi,    `<th$1 style="${TH}">`)
+    .replace(/<td\b((?:(?!style=)[^>])*)>/gi,    `<td$1 style="${TD}">`);
 }
 
 // Converts an HTML fragment into a sequence of Gutenberg blocks (used at top level and
@@ -1556,4 +1599,4 @@ async function testConnection(config) {
   }
 }
 
-module.exports = { postDraft, testConnection, htmlToGutenbergBlocks, buildFaqHtml, composeContentHtml };
+module.exports = { postDraft, testConnection, htmlToGutenbergBlocks, buildFaqHtml, composeContentHtml, styleTableHtml };

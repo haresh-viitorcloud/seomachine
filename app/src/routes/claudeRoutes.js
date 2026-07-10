@@ -10,8 +10,13 @@ router.get('/api/claude/status', requireAuth, async (req, res) => {
   const cliStatus = await claudeService.checkCliStatus();
   const apiKeySet = !!process.env.ANTHROPIC_API_KEY;
 
+  // Mirror getGenerationMode()'s routing so the badge reflects what generation will
+  // actually do: use the CLI unless it's CONFIRMED absent or CONFIRMED logged out (a
+  // flaky Windows probe leaves installed/authenticated false but *Known false — still CLI).
+  const cliUsable = cliStatus.installed || !cliStatus.installedKnown;
+  const cliAuthOk = cliStatus.authenticated || !cliStatus.authKnown;
   let activeMode = 'none';
-  if (cliStatus.installed && cliStatus.authenticated) activeMode = 'cli';
+  if (cliUsable && cliAuthOk) activeMode = 'cli';
   else if (apiKeySet) activeMode = 'sdk';
 
   res.json({
@@ -153,12 +158,13 @@ router.post('/api/claude/engine', requireAuth, (req, res) => {
 const KNOWN_MODELS = [
   { id: 'claude-opus-4-8',             name: 'Opus 4.8',    desc: 'Most capable · 1M context · Complex work' },
   { id: 'claude-opus-4-7',             name: 'Opus 4.7',    desc: 'High capability · Complex work' },
+  { id: 'claude-fable-5',              name: 'Fable 5',     desc: 'Claude 5 family · Latest generation' },
   { id: 'claude-sonnet-4-6',           name: 'Sonnet 4.6',  desc: 'Best for everyday tasks · Recommended' },
   { id: 'claude-haiku-4-5-20251001',   name: 'Haiku 4.5',   desc: 'Fastest · Lowest cost · Quick tasks' },
 ];
 
 // Models hidden from the picker regardless of what the live API returns
-const BLOCKED_MODELS = ['claude-fable-5'];
+const BLOCKED_MODELS = [];
 
 // Maps a raw model id to a friendly name/description for the picker.
 function describeModel(m) {

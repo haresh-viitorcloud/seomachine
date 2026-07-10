@@ -1,6 +1,19 @@
 {
   "_comment": "CTA background images per blog. Image paths are RELATIVE — the blog's own domain (wp_url) is prepended automatically, so staging vs production resolves itself. To manage images: edit a category path below, add a new category key, or add a blog-slug section to override the defaults for one blog. 'default' (top level) is the fallback set used by any blog without its own section. The 'default' category inside a set is used when no category matches. Blog slugs in 'disabled' get NO cta-section-modern banner — the inline CTA in the generated article is used instead.",
+  "_comment_standard": "Blogs in 'standard' get ONE self-contained, inline-styled, clickable <a>-based CTA appended at the end of every post (rendered as a Gutenberg Custom HTML block), INSTEAD of the theme-class-based 'cta-section-modern' boxes. Copy is FIXED here (not model-generated), so it never drifts into unconfirmed claims. Use this for any site whose theme does NOT ship the cta-* CSS classes (e.g. laracopilot.com). Edit colours/copy/link below — no code change needed.",
   "disabled": ["everycred", "everyticket"],
+  "standard": {
+    "lc": {
+      "link": "https://builder.laracopilot.com/register",
+      "heading": "Build your Laravel app with AI",
+      "description": "Skip the boilerplate. LaraCopilot turns a plain-English prompt into production-ready Laravel apps, with models, migrations, controllers, CRUD, auth, and tests.",
+      "button": "Get started free",
+      "bg": "#1A1A1A",
+      "text": "#FBFAF7",
+      "buttonBg": "#F53003",
+      "buttonText": "#FFFFFF"
+    }
+  },
   "default": {
     "categories": {
       "ai": "/wp-content/uploads/2024/05/AI.jpg",

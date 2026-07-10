@@ -36,7 +36,11 @@ async function testConnection(config) {
     // baseUrl already contains the custom CP path (e.g. /vr-studio)
     const loginUrl = `${baseUrl}/auth/login`;
 
-    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    const loginResp = await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+    // Confirm the CP login page actually rendered a form before trying to log in — a
+    // moved/removed CP returns 404 (blank page). _assertLoginForm throws a clear message.
+    await _assertLoginForm(page, loginResp, loginUrl);
 
     // Fill login form
     await _fillLogin(page, username, password);
@@ -82,6 +86,13 @@ async function postDraft(blogConfig, generatedContent, rawData, logFn) {
   if (!username) throw new Error('Statamic CP username is not configured for this blog.');
   if (!password) throw new Error('Statamic CP password is not configured for this blog.');
 
+  // ── Preflight: confirm the CP login page is reachable BEFORE the expensive image
+  // generation + browser launch. If the Control Panel URL has changed or the CP is down,
+  // the server returns 404 — fail fast here with a clear message instead of spending
+  // minutes on image generation and then hanging on a blank login form (waitForURL timeout).
+  const loginUrl = `${baseUrl}/auth/login`;
+  await _preflightCpReachable(loginUrl, log);
+
   // ── Generate featured image BEFORE launching browser ──
   // imageService has long retry chains (Codex → HF → gradient) that can take several minutes.
   // Generating first keeps the browser session short and prevents auth/navigation timeouts.
@@ -121,9 +132,10 @@ async function postDraft(blogConfig, generatedContent, rawData, logFn) {
     // baseUrl already contains the custom CP path (e.g. http://host:8080/vr-studio)
     log('Logging into Statamic CP...');
     // Retry once — server may need a warm-up request after being idle
+    let loginResp = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        await page.goto(`${baseUrl}/auth/login`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        loginResp = await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
         break;
       } catch (e) {
         if (attempt === 2) throw new Error(`Statamic server unreachable after 2 attempts: ${e.message}`);
@@ -131,6 +143,10 @@ async function postDraft(blogConfig, generatedContent, rawData, logFn) {
         await page.waitForTimeout(3000);
       }
     }
+    // Confirm the login page actually rendered a form. A moved/removed CP returns a 404
+    // (blank page) with no fields — without this, _fillLogin fills nothing and the code
+    // hangs on waitForURL for the full 30s, failing with a cryptic timeout.
+    await _assertLoginForm(page, loginResp, loginUrl);
     await _fillLogin(page, username, password);
     await page.waitForURL(url => !url.href.includes('/auth/login'), { timeout: 30000 });
     log('Login successful.');
@@ -174,16 +190,18 @@ async function postDraft(blogConfig, generatedContent, rawData, logFn) {
       log(`Excerpt skipped: ${e.message}`);
     }
 
-    // ── Step 5.5: Select Category ──
-    await _selectCategory(page, blogConfig.statamic_category || '', log);
+    // ── Step 5.5: Category ──
+    // Set via the post-save CP-API PATCH (blog_categories), NOT the form dropdown — the
+    // dropdown only ever picked the first option and the selection did not persist.
+    // The category is configured per-blog in .env (statamic_category).
 
     // ── Step 5.6: Select Author (if field exists) ──
     await _selectAuthor(page, log);
 
-    // ── Step 6: Fill Content (Bard rich-text editor) ──
-    await _fillContent(page, generatedContent, log);
-    // Let ProseMirror/Vue finish processing all the typed keystrokes before saving
-    await page.waitForTimeout(2000);
+    // ── Step 6: Content ──
+    // Set via the post-save CP-API PATCH (content as a Bard node array), NOT by typing.
+    // Typing a long article into ProseMirror took ~7 min and never persisted (Bard stores
+    // a structured node array, not keystrokes). See _htmlToBardNodes + patchPayload.content.
 
     // ── Step 7: Upload Cover Image if available ──
     if (imageBuffer) {
@@ -304,7 +322,7 @@ async function postDraft(blogConfig, generatedContent, rawData, logFn) {
     } else if (finalUrl.includes('/entries/create')) {
       // URL didn't change — form save was blocked. Try the CP REST API as fallback.
       log('Form save blocked — trying direct CP API fallback...');
-      const apiResult = await _apiSave(page, context, baseUrl, collection, blueprint, site, generatedContent, log);
+      const apiResult = await _apiSave(page, context, baseUrl, collection, blueprint, site, generatedContent, blogConfig, rowData, log);
       if (apiResult) {
         log(`Draft saved via API. Entry ID: ${apiResult.entryId || 'unknown'}`);
         return {
@@ -377,12 +395,28 @@ async function postDraft(blogConfig, generatedContent, rawData, logFn) {
         const _now = new Date();
         const _pad = (n) => String(n).padStart(2, '0');
         const dateIso = `${_now.getFullYear()}-${_pad(_now.getMonth()+1)}-${_pad(_now.getDate())}T00:00:00.000Z`;
+
+        // Body content as a Bard node array (the Bard fieldtype won't accept HTML/plain text).
+        let bardDoc = [{ type: 'paragraph', attrs: { textAlign: null } }];
+        try { bardDoc = await _htmlToBardNodes(page, generatedContent.content || ''); }
+        catch (e) { log(`Bard conversion failed (${e.message.split('\n')[0]}) — saving empty body.`); }
+
         const patchPayload = {
           published: false,
           title:     generatedContent.title,
           slug:      formSlug || (generatedContent.slug || generatedContent.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').substring(0, 180),
           date:      dateIso,
+          content:   bardDoc,
+          // Basic SEO panel: "Page Title" (≤60) + "Meta Description" (≤160), keyword-aware
+          // (the generated values already weave in the primary keyword).
+          seo_title:       _clip(generatedContent.seo_title || generatedContent.title || '', 60),
+          seo_description: _clip(generatedContent.meta_description || '', 160),
         };
+        // Blog category — "auto" (per-blog .env → statamic_category) picks the best-matching
+        // of Devlyn's 7 taxonomy terms for this article; a fixed value forces one category.
+        const termId = _resolveCategoryTermId(blogConfig, generatedContent, rawData);
+        if (termId) patchPayload.blog_categories = [termId];
+        log(`PATCH fields: content(${bardDoc.length} blocks), seo_title(${patchPayload.seo_title.length}c), seo_description(${patchPayload.seo_description.length}c), category(${termId || 'none'})`);
         // Assets fieldtype stores the full ID array; max_files:1 still uses array form for PATCH.
         if (coverImageAssetPath) patchPayload.cover_image = [coverImageAssetPath];
         const patchResult = await page.evaluate(async (p) => {
@@ -436,6 +470,44 @@ async function postDraft(blogConfig, generatedContent, rawData, logFn) {
 // ─────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────
+
+// Lightweight reachability check (no browser) — used before the expensive image
+// generation + browser launch. A moved/removed CP returns 404/410 here, so we fail fast
+// with a clear message. Ambiguous statuses (e.g. a Cloudflare bot challenge on plain
+// fetch) are NOT treated as fatal — the browser path handles those.
+async function _preflightCpReachable(loginUrl, log) {
+  try {
+    const resp = await fetch(loginUrl, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(15000) });
+    if (resp.status === 404 || resp.status === 410) {
+      throw new Error(
+        `Statamic Control Panel not found at ${loginUrl} (HTTP ${resp.status}). ` +
+        `The CP URL has likely changed or the Control Panel is down — verify the site's CP is reachable in a browser ` +
+        `and update this blog's Statamic URL (BLOG_DEVLYN_STATAMIC_URL / Blog Settings).`
+      );
+    }
+  } catch (err) {
+    // Re-throw our own clear error; only swallow genuine network-probe noise.
+    if (/Control Panel not found/.test(err.message)) throw err;
+    log?.(`CP preflight inconclusive (${err.message.substring(0, 80)}) — continuing to browser login.`);
+  }
+}
+
+// Assert the login page rendered an actual login form. Guards against a 404/blank page
+// (CP moved/removed) that would otherwise cause _fillLogin to fill nothing and the code
+// to hang on waitForURL for the full timeout, failing with a cryptic message.
+async function _assertLoginForm(page, response, loginUrl) {
+  const status = response ? response.status() : 0;
+  const hasForm = await page.evaluate(() =>
+    !!document.querySelector('input[type="password"], input[name="password"], #password')
+  ).catch(() => false);
+  if (status >= 400 || !hasForm) {
+    throw new Error(
+      `Statamic CP login page not available at ${loginUrl} (HTTP ${status || 'unknown'}, ` +
+      `login form ${hasForm ? 'present' : 'missing'}). The Control Panel URL may have changed or the CP is down — ` +
+      `verify it in a browser and update this blog's Statamic URL.`
+    );
+  }
+}
 
 async function _fillLogin(page, username, password) {
   // Statamic login uses email + password
@@ -971,13 +1043,17 @@ async function _selectAuthor(page, log) {
 
 // Save the entry directly via Statamic's CP REST endpoint using Playwright's APIRequestContext.
 // context.request shares cookies with the browser session, so CSRF tokens are valid.
-async function _apiSave(page, context, baseUrl, collection, blueprint, site, generatedContent, log) {
+async function _apiSave(page, context, baseUrl, collection, blueprint, site, generatedContent, blogConfig, rowData, log) {
   try {
     const today = new Date();
     const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
     const dateSuffix = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
     const slug = (generatedContent.slug || generatedContent.title || '')
       .toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').substring(0, 180) + `-${dateSuffix}`;
+
+    let bardDoc = [{ type: 'paragraph', attrs: { textAlign: null } }];
+    try { bardDoc = await _htmlToBardNodes(page, generatedContent.content || ''); } catch {}
+    const termId = _resolveCategoryTermId(blogConfig, generatedContent, rowData || {});
 
     const saveUrl = `${baseUrl}/collections/${collection}/entries`;
     const payload = {
@@ -986,9 +1062,13 @@ async function _apiSave(page, context, baseUrl, collection, blueprint, site, gen
       published:  false,
       date:       dateStr,
       excerpt:    generatedContent.meta_description || '',
+      content:    bardDoc,
+      seo_title:       _clip(generatedContent.seo_title || generatedContent.title || '', 60),
+      seo_description: _clip(generatedContent.meta_description || '', 160),
       _blueprint: blueprint,
       _site:      site,
     };
+    if (termId) payload.blog_categories = [termId];
 
     // Use fetch() with the CSRF token from the page's meta tag.
     // fetch() is always available; window.axios may not be globally exposed in Statamic CP.
@@ -1111,6 +1191,154 @@ function _htmlToMarkdown(html) {
     .trim();
 }
 
+// Convert generated HTML into a Statamic Bard (ProseMirror) node array, using the
+// browser's real DOMParser. Typing the article into the Bard editor (the old approach)
+// took ~7 min for a long post AND did not persist — the Bard fieldtype stores a
+// structured node array, so we build that array here and PATCH it via the CP API.
+// Node schema matches what live Devlyn entries use:
+//   paragraph {attrs:{textAlign:null}}, heading {attrs:{textAlign:null,level}},
+//   bulletList/orderedList → listItem → paragraph, marks: bold/italic/code/link.
+async function _htmlToBardNodes(page, html) {
+  if (!html) return [{ type: 'paragraph', attrs: { textAlign: null } }];
+  return page.evaluate((rawHtml) => {
+    const doc = new DOMParser().parseFromString(`<div id="__root">${rawHtml}</div>`, 'text/html');
+    const root = doc.getElementById('__root');
+    const REL = 'noopener noreferrer nofollow';
+
+    const inline = (el, marks) => {
+      marks = marks || [];
+      const out = [];
+      el.childNodes.forEach((child) => {
+        if (child.nodeType === 3) {
+          const text = child.textContent;
+          if (text) out.push(marks.length ? { type: 'text', marks: marks.slice(), text } : { type: 'text', text });
+        } else if (child.nodeType === 1) {
+          const tag = child.tagName.toLowerCase();
+          const m = marks.slice();
+          if (tag === 'strong' || tag === 'b') m.push({ type: 'bold' });
+          else if (tag === 'em' || tag === 'i') m.push({ type: 'italic' });
+          else if (tag === 'code') m.push({ type: 'code' });
+          else if (tag === 'a') m.push({ type: 'link', attrs: { href: child.getAttribute('href') || '', target: '_blank', rel: REL, title: null } });
+          else if (tag === 'br') { out.push({ type: 'text', text: ' ' }); return; }
+          out.push(...inline(child, m));
+        }
+      });
+      return out;
+    };
+    const para = (el) => {
+      const content = inline(el);
+      return content.length ? { type: 'paragraph', attrs: { textAlign: null }, content } : null;
+    };
+    const listItems = (listEl) => {
+      const items = [];
+      listEl.querySelectorAll(':scope > li').forEach((li) => {
+        const content = inline(li);
+        items.push({ type: 'listItem', content: [content.length ? { type: 'paragraph', attrs: { textAlign: null }, content } : { type: 'paragraph', attrs: { textAlign: null } }] });
+      });
+      return items;
+    };
+
+    const nodes = [];
+    root.childNodes.forEach((el) => {
+      if (el.nodeType === 3) {
+        const t = el.textContent.trim();
+        if (t) nodes.push({ type: 'paragraph', attrs: { textAlign: null }, content: [{ type: 'text', text: t }] });
+        return;
+      }
+      if (el.nodeType !== 1) return;
+      const tag = el.tagName.toLowerCase();
+      if (/^h[1-6]$/.test(tag)) {
+        let level = parseInt(tag[1], 10); if (level < 2) level = 2;
+        nodes.push({ type: 'heading', attrs: { textAlign: null, level }, content: inline(el) });
+      } else if (tag === 'p') {
+        const p = para(el); if (p) nodes.push(p);
+      } else if (tag === 'ul') {
+        const items = listItems(el); if (items.length) nodes.push({ type: 'bulletList', attrs: {}, content: items });
+      } else if (tag === 'ol') {
+        const items = listItems(el); if (items.length) nodes.push({ type: 'orderedList', attrs: { start: 1, type: null }, content: items });
+      } else if (tag === 'blockquote') {
+        const inner = [];
+        el.querySelectorAll(':scope > p').forEach((p) => { const pp = para(p); if (pp) inner.push(pp); });
+        if (!inner.length) { const c = inline(el); if (c.length) inner.push({ type: 'paragraph', attrs: { textAlign: null }, content: c }); }
+        nodes.push({ type: 'blockquote', content: inner.length ? inner : [{ type: 'paragraph', attrs: { textAlign: null } }] });
+      } else {
+        const p = para(el); if (p) nodes.push(p);
+      }
+    });
+    return nodes.length ? nodes : [{ type: 'paragraph', attrs: { textAlign: null } }];
+  }, html);
+}
+
+// Devlyn's "Blog Categories" taxonomy — verified term IDs (slugs are NOT plain kebab-case:
+// "Cloud & Modernizations"→cloud, "Software Development"→software-dev) plus the distinctive
+// keywords used to auto-pick the best-matching category per article. Order matters only as a
+// tie-break (earlier = slightly preferred). Keep keywords distinctive to avoid false hits.
+const DEVLYN_BLOG_CATEGORIES = [
+  { id: 'blog_categories::artificial-intelligence', title: 'Artificial Intelligence',
+    kw: ['llm', 'rag', 'agent', 'agents', 'agentic', 'gpt', 'claude', 'langchain', 'llamaindex',
+         'machine learning', 'voice ai', 'voice agent', 'chatbot', 'fine-tun', 'fine tun', 'prompt',
+         'multi-agent', 'vapi', 'retell', 'bland ai', 'hallucinat', 'generative', 'token cost', 'genai'] },
+  { id: 'blog_categories::hiring-outsourcing', title: 'Hiring & Outsourcing',
+    kw: ['hir', 'outsourc', 'offshore', 'staff augmentation', 'staff aug', 'recruit', 'contractor',
+         'dedicated developer', 'developer cost', 'dev cost', 'candidate', 'interview', 'onboard',
+         'agency', 'agencies', 'capacity', 'augmentation', ' pod', 'vendor'] },
+  { id: 'blog_categories::cloud', title: 'Cloud & Modernizations',
+    kw: ['cloud', 'aws', 'azure', 'gcp', 'kubernetes', 'docker', 'devops', 'migrat', 'moderniz',
+         'microservice', 'octane', 'infrastructure', 'serverless', 'n8n', 'zapier', 'make.com',
+         'automation', 'workflow'] },
+  { id: 'blog_categories::startup-mvp', title: 'Startup & MVP',
+    kw: ['startup', 'mvp', 'founder', 'product-market', 'bootstrap', 'early-stage', 'early stage',
+         'non-technical', 'go-to-market'] },
+  { id: 'blog_categories::app-development', title: 'App Development',
+    kw: ['mobile app', 'ios', 'android', 'frontend', 'booking system', 'e-commerce', 'ecommerce',
+         'saas app', 'build an app', 'build a saas'] },
+  { id: 'blog_categories::software-dev', title: 'Software Development',
+    kw: ['laravel', 'php', 'symfony', 'codebase', 'refactor', 'rest api', 'backend', 'framework',
+         'crud', 'django', 'fastapi', 'python', 'code quality', 'monolith', 'queue', 'eloquent'] },
+  { id: 'blog_categories::business-intelligence', title: 'Business Intelligence',
+    kw: ['business intelligence', 'analytics', 'data warehouse', 'dashboard', 'reporting', 'kpi'] },
+];
+
+// Score each category against the article (title + primary keyword weigh heavily, body lightly)
+// and return the best-matching term id. Used when statamic_category is "auto" or blank.
+function _autoPickCategoryTermId(generatedContent, rawData) {
+  const title = (generatedContent.title || '').toLowerCase();
+  const kw = String((rawData && rawData.primary_keyword) || generatedContent.primary_keyword || '').toLowerCase();
+  const body = _htmlToPlainText(generatedContent.content || '').toLowerCase().slice(0, 4000);
+  const strong = ` ${title} ${title} ${kw} ${kw} `;   // title/keyword weighted ×2 by repetition
+  const full = ` ${strong} ${body} `;
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const count = (hay, term) => (hay.match(new RegExp(`\\b${esc(term)}`, 'g')) || []).length;
+  let best = '', bestScore = 0;
+  for (const cat of DEVLYN_BLOG_CATEGORIES) {
+    let score = 0;
+    for (const t of cat.kw) score += count(strong, t) * 5 + count(full, t);
+    if (score > bestScore) { bestScore = score; best = cat.id; }
+  }
+  return best || 'blog_categories::software-dev'; // sensible default for this dev-led brand
+}
+
+// Resolve the blog_categories PATCH value. "auto"/blank → pick best per article; a full term id
+// (contains "::") → use as-is; a known display name → its verified id; else kebab-case fallback.
+function _resolveCategoryTermId(blogConfig, generatedContent, rawData) {
+  const raw = String((blogConfig && blogConfig.statamic_category) || '').trim();
+  if (!raw || raw.toLowerCase() === 'auto') return _autoPickCategoryTermId(generatedContent, rawData);
+  if (raw.includes('::')) return raw;
+  const byName = DEVLYN_BLOG_CATEGORIES.find((c) => c.title.toLowerCase() === raw.toLowerCase());
+  if (byName) return byName.id;
+  const slug = raw.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return slug ? `blog_categories::${slug}` : '';
+}
+
+// Clip an SEO string to a max length on a word boundary (no mid-word cuts).
+function _clip(str, max) {
+  const s = String(str || '').replace(/\s+/g, ' ').trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[\s,;:.\-]+$/, '');
+}
+
 // Navigate to the entry EDIT page and use the save-button dropdown to "Save as Draft".
 // This is the most reliable last-resort method: we're on the entry page (not the list), so the
 // "Save as Draft" option is always reachable via the caret next to "Save & Publish".
@@ -1184,4 +1412,4 @@ async function _setSavedEntryToDraft(page, baseUrl, collection, entryId, log) {
   }
 }
 
-module.exports = { testConnection, postDraft };
+module.exports = { testConnection, postDraft, _autoPickCategoryTermId, _resolveCategoryTermId, _htmlToBardNodes, _clip };

@@ -57,7 +57,9 @@ function getImageUrl(blogSlug, category, siteUrl) {
   return String(siteUrl || '').replace(/\/$/, '') + p;
 }
 
-// Builds one CTA block using the theme's exact markup.
+// Builds one CTA block using the theme's exact markup. Used by blogs whose theme
+// actually ships the cta-* CSS classes (e.g. viitorcloud.com). For blogs without that
+// CSS, use the self-contained inline CTA below (see getStandardCta/buildInlineCtaHtml).
 function buildCtaHtml(cta, imageUrl) {
   const bg = imageUrl ? `background: url('${imageUrl}') no-repeat center center/cover;` : '';
   return `<div class="cta-section-modern" style="${bg}">
@@ -69,4 +71,33 @@ function buildCtaHtml(cta, imageUrl) {
 </div>`;
 }
 
-module.exports = { getImagePath, getImageUrl, buildCtaHtml, isCtaEnabled, VALID_CATEGORIES };
+// Returns the fixed "standard" CTA config for a blog (from cta-config.json → standard[slug]),
+// or null. Blogs with a standard CTA get ONE self-contained inline CTA appended per post.
+function getStandardCta(blogSlug) {
+  const cfg = loadConfig();
+  const std = cfg.standard && cfg.standard[blogSlug];
+  return std && std.link ? std : null;
+}
+
+// Builds a fully self-contained, inline-styled CTA with a clickable <a> link. It carries
+// ALL its own styling, so it renders identically regardless of theme CSS (no dependency on
+// theme classes) and the <a> makes it clickable everywhere. The leading comment marks it as
+// a WordPress "Custom HTML" block; htmlToGutenbergBlocks() wraps any <div> in <!-- wp:html -->.
+function buildInlineCtaHtml(std) {
+  const bg = std.bg || '#1A1A1A';
+  const text = std.text || '#FBFAF7';
+  const btnBg = std.buttonBg || '#F53003';
+  const btnText = std.buttonText || '#FFFFFF';
+  const heading = escapeHtml(std.heading || '');
+  const description = escapeHtml(std.description || '');
+  const button = escapeHtml(std.button || 'Get started free');
+  const href = escapeHtml(std.link);
+  return `<!-- CTA — WordPress "Custom HTML" block; self-contained inline styles, no theme-CSS dependency -->
+<div style="background:${bg};border-radius:16px;padding:40px 32px;margin:32px 0;text-align:center;">
+<p style="color:${text};font-size:24px;font-weight:700;line-height:1.3;margin:0 0 12px;">${heading}</p>
+<p style="color:${text};opacity:0.85;font-size:16px;line-height:1.6;margin:0 0 24px;">${description}</p>
+<a href="${href}" style="display:inline-block;background:${btnBg};color:${btnText};font-size:16px;font-weight:600;text-decoration:none;padding:14px 32px;border-radius:8px;">${button}</a>
+</div>`;
+}
+
+module.exports = { getImagePath, getImageUrl, buildCtaHtml, isCtaEnabled, VALID_CATEGORIES, getStandardCta, buildInlineCtaHtml };
