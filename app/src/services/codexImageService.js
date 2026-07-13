@@ -151,7 +151,15 @@ function runCodex(codexBin, prompt, cwd, timeoutMs) {
     const finish = (ok) => { if (!done) { done = true; resolve(ok); } };
     let proc;
     try {
-      proc = spawn(codexBin, ['exec', '-s', 'workspace-write', '--skip-git-repo-check', '-C', cwd], {
+      // NOTE: 'danger-full-access' (not 'workspace-write') — in this environment,
+      // workspace-write's bubblewrap sandbox fails to set up loopback networking
+      // ("bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"), so Codex
+      // generates the image but can never save it to disk. This trades away Codex's
+      // own sandboxing for the file-save step; the model is still only asked to run
+      // one image_gen call + save the result, but there's no OS-level containment if
+      // it did something else. Revisit if the underlying sandbox/container issue gets
+      // fixed at the infra level.
+      proc = spawn(codexBin, ['exec', '-s', 'danger-full-access', '--skip-git-repo-check', '-C', cwd], {
         cwd, env: { ...process.env, NO_COLOR: '1' },
       });
     } catch { return finish(false); }

@@ -681,8 +681,12 @@ function parseGeneratedContent(rawText, row) {
     if (htmlStart !== -1) {
       // Find where the HTML ends (last closing block tag before JSON suffix)
       const htmlChunk = text.substring(htmlStart);
-      // Cut off any trailing JSON structure (e.g. ","tags":[...] or "})
-      const trailingJson = htmlChunk.search(/",\s*"(?:tags|faq|title|meta|image)"/);
+      // Cut off any trailing JSON structure (e.g. ","image_prompt":"..." or "}) — must
+      // list the FULL field names from the JSON contract (claudeService.js's prompt
+      // template), not truncated prefixes: "image" never matches "image_prompt", so a
+      // prefix-only list here silently keeps the entire raw JSON tail as literal body
+      // text (this is what leaked image_prompt/image_alt/category into published posts).
+      const trailingJson = htmlChunk.search(/",\s*"(?:seo_title|slug|meta_description|image_prompt|image_alt|category|cta_category|ctas|tags|faq|title)"/);
       const htmlContent = trailingJson !== -1
         ? htmlChunk.substring(0, trailingJson)
         : htmlChunk;

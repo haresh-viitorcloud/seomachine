@@ -7,6 +7,7 @@
 const { db } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const dayjs = require('dayjs');
+const astroGitService = require('./astroGitService');
 
 let _io = null; // Socket.io instance, set via init()
 
@@ -80,6 +81,34 @@ function updateJobStatus(id, status, extra = {}) {
   const job = getJob(id);
   emit('job:updated', job);
   return job;
+}
+
+// Admin edits to a staged (astro-git review-gate) post — title/content/category/excerpt
+// reuse the existing generated_* columns; featured/author/noindex are review-only fields.
+// Re-staging the edited post.md (astroGitService.updateStagedPost) is the caller's job —
+// this only persists the DB side of the edit.
+function updateReviewContent(id, fields = {}) {
+  const job = getJob(id);
+  if (!job) throw new Error('Job not found');
+
+  const cols = [];
+  const values = [];
+  if (fields.title !== undefined) { cols.push('generated_title = ?'); values.push(fields.title); }
+  if (fields.content !== undefined) { cols.push('generated_content = ?'); values.push(fields.content); }
+  if (fields.excerpt !== undefined) { cols.push('generated_meta = ?'); values.push(fields.excerpt); }
+  if (fields.cat !== undefined) { cols.push('generated_category = ?'); values.push(fields.cat); }
+  if (fields.author !== undefined) { cols.push('review_author = ?'); values.push(fields.author); }
+  if (fields.featured !== undefined) { cols.push('review_featured = ?'); values.push(fields.featured ? 1 : 0); }
+  if (fields.noindex !== undefined) { cols.push('review_noindex = ?'); values.push(fields.noindex ? 1 : 0); }
+  if (!cols.length) return job; // nothing to update
+
+  cols.push("updated_at = datetime('now')");
+  values.push(id);
+  db.prepare(`UPDATE jobs SET ${cols.join(', ')} WHERE id = ?`).run(...values);
+
+  const updated = getJob(id);
+  emit('job:updated', updated);
+  return updated;
 }
 
 function getJobsByStatus(...statuses) {
@@ -376,6 +405,7 @@ function retryPostJob(id) {
   if (!job.generated_content) {
     throw new Error('No generated content found. Use Restart to regenerate from scratch.');
   }
+  astroGitService.cleanupStaging(id); // drop any partial/stale review staging before retrying
   db.prepare(`
     UPDATE jobs SET
       status = 'pending',
@@ -398,6 +428,7 @@ function regenerateContentJob(id) {
   if (['generating', 'posting'].includes(job.status)) {
     throw new Error('Cannot regenerate a job that is currently running.');
   }
+  astroGitService.cleanupStaging(id); // regenerating produces new content — discard the old staged review
   db.prepare(`
     UPDATE jobs SET
       status = 'pending',
@@ -428,6 +459,7 @@ function restartJob(id) {
   if (['generating', 'posting'].includes(job.status)) {
     throw new Error('Cannot restart a job that is currently running. Wait for it to finish or restart the server.');
   }
+  astroGitService.cleanupStaging(id); // restarting from scratch — discard any staged review
   db.prepare('DELETE FROM activity_logs WHERE job_id = ?').run(id);
   db.prepare(`
     UPDATE jobs SET
@@ -461,6 +493,7 @@ function deleteJob(id) {
   if (['generating', 'posting'].includes(job.status)) {
     throw new Error('Cannot delete a job that is currently running. Wait for it to finish or restart the server.');
   }
+  astroGitService.cleanupStaging(id); // discard any staged review — nothing left to commit
   db.prepare('DELETE FROM activity_logs WHERE job_id = ?').run(id);
   // Drop feedback tied to this job so its notes are not injected into future prompts
   db.prepare('DELETE FROM generation_feedback WHERE job_id = ?').run(id);
@@ -572,6 +605,7 @@ module.exports = {
   createJob,
   getJob,
   updateJobStatus,
+  updateReviewContent,
   getJobsByStatus,
   getAllJobs,
   getJobStats,
