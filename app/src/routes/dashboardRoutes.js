@@ -4,6 +4,8 @@ const queueService = require('../services/queueService');
 const schedulerService = require('../services/schedulerService');
 const seoScoreService = require('../services/seoScoreService');
 const claudeService = require('../services/claudeService');
+const astroGitService = require('../services/astroGitService');
+const { marked } = require('marked');
 
 const router = express.Router();
 
@@ -51,11 +53,12 @@ router.get('/api/jobs/:id/preview', requireAuth, (req, res) => {
   const tags = job.generated_tags ? JSON.parse(job.generated_tags) : [];
   const title = job.generated_title || job.title;
 
+  const { db } = require('../config/database');
+  const blog = db.prepare('SELECT * FROM blog_configs WHERE id = ?').get(job.blog_id);
+
   // Predicted Rank Math-style SEO score (only when content exists)
   let seo = null;
   if (job.generated_content) {
-    const { db } = require('../config/database');
-    const blog = db.prepare('SELECT wp_url, domain FROM blog_configs WHERE id = ?').get(job.blog_id);
     let secondary = [];
     try { secondary = JSON.parse(job.raw_data || '{}').secondary_keywords || []; } catch { /* ignore */ }
     seo = seoScoreService.scoreContent({
@@ -70,17 +73,79 @@ router.get('/api/jobs/:id/preview', requireAuth, (req, res) => {
     });
   }
 
+  // Astro/git review gate: if this job has a staged (not-yet-committed) post, surface
+  // its cover image + a flag telling the UI to render the Commit/edit controls.
+  const staging = astroGitService.getStagingInfo(req.params.id);
+  // Existing categories for the dropdown — cheap (reads the already-cloned local
+  // working copy, no git network call), so safe to compute whenever it might be shown.
+  let categoryOptions = [];
+  if (blog?.publishing_platform === 'astro-git') {
+    try { categoryOptions = astroGitService.listCategories(blog); } catch { /* clone may not exist yet */ }
+  }
+
   res.json({
     title,
     meta_description: job.generated_meta,
-    content: job.generated_content,
+    // While staged for review, show the exact Markdown that will actually be committed
+    // (not the raw HTML in generated_content) — that's what the edit form displays/saves.
+    content: staging.exists && staging.body !== null ? staging.body : job.generated_content,
     image_prompt: job.generated_image_prompt,
     tags,
     wp_post_id: job.wp_post_id,
     wp_post_url: job.wp_post_url,
     image_source: job.image_source || '',
     seo,
+    platform: blog?.publishing_platform || 'wordpress',
+    // Astro/git-only frontmatter fields, editable while a post is staged for review.
+    category: job.generated_category || '',
+    category_options: categoryOptions,
+    featured: !!job.review_featured,
+    author: job.review_author || 'Devlyn',
+    noindex: !!job.review_noindex,
+    cover_image_url: staging.coverPath ? `/api/jobs/${req.params.id}/preview-image` : null,
+    review_ready: staging.exists,
   });
+});
+
+// Staged cover image for a review-gate job (astro-git) — authenticated, not served from
+// public/, since it's an unpublished draft image that shouldn't be reachable anonymously.
+router.get('/api/jobs/:id/preview-image', requireAuth, (req, res) => {
+  const staging = astroGitService.getStagingInfo(req.params.id);
+  if (!staging.coverPath) return res.status(404).json({ error: 'No staged cover image for this job' });
+  res.setHeader('Content-Type', 'image/png');
+  res.sendFile(staging.coverPath);
+});
+
+// Commit a staged review-gate post (astro-git) — the human-in-the-loop publish step.
+router.post('/api/jobs/:id/commit-astro', requireAuth, (req, res) => {
+  try {
+    const job = schedulerService.commitReviewJob(req.params.id);
+    res.json({ ok: true, job });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Edit a staged review-gate post (astro-git) — saves to the DB and re-stages post.md
+// with the edits, without pushing anything. Accepts any subset of
+// { title, content, cat, excerpt, author, featured, noindex }. `content`, when present,
+// is Markdown (what the edit form shows/collects for a staged post — see the /preview
+// endpoint above) — it's staged as-is, and separately converted to HTML for
+// generated_content so the DB column stays HTML-consistent for every other consumer
+// (SEO scorer, the read-only view once committed, WordPress/Statamic jobs, etc).
+router.put('/api/jobs/:id/review-content', requireAuth, async (req, res) => {
+  try {
+    const fields = { ...(req.body || {}) };
+    const staging = astroGitService.getStagingInfo(req.params.id);
+    if (staging.exists) {
+      await astroGitService.updateStagedPost(req.params.id, fields);
+      if (fields.content !== undefined) fields.content = marked(fields.content);
+    }
+    const job = queueService.updateReviewContent(req.params.id, fields);
+    res.json({ ok: true, job });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Queue control

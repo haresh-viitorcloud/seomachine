@@ -2,6 +2,7 @@ const express = require('express');
 const { requireAuth } = require('../middleware/authMiddleware');
 const wordpressService = require('../services/wordpressService');
 const statamicService  = require('../services/statamicService');
+const astroGitService  = require('../services/astroGitService');
 const { db } = require('../config/database');
 
 const router = express.Router();
@@ -12,19 +13,23 @@ router.get('/api/configs', requireAuth, (req, res) => {
     SELECT id, slug, name, domain, wp_url, wp_username, wp_method, wp_category, wp_author_id,
            context_path, rules_path, is_active, created_at,
            publishing_platform, statamic_url, statamic_collection, statamic_cp_username,
-           statamic_blueprint, statamic_site, statamic_category
+           statamic_blueprint, statamic_site, statamic_category,
+           astro_repo_url, astro_repo_path, astro_branch, astro_content_dir, astro_covers_dir,
+           astro_git_author_name, astro_git_author_email
     FROM blog_configs ORDER BY id ASC
   `).all();
   res.json({ configs });
 });
 
-// Get single config (no passwords)
+// Get single config (no passwords/tokens)
 router.get('/api/configs/:id', requireAuth, (req, res) => {
   const config = db.prepare(`
     SELECT id, slug, name, domain, wp_url, wp_username, wp_method, wp_category, wp_author_id,
            context_path, rules_path, is_active,
            publishing_platform, statamic_url, statamic_collection, statamic_cp_username,
-           statamic_blueprint, statamic_site, statamic_category
+           statamic_blueprint, statamic_site, statamic_category,
+           astro_repo_url, astro_repo_path, astro_branch, astro_content_dir, astro_covers_dir,
+           astro_git_author_name, astro_git_author_email
     FROM blog_configs WHERE id = ?
   `).get(req.params.id);
   if (!config) return res.status(404).json({ error: 'Config not found' });
@@ -38,6 +43,8 @@ router.post('/api/configs', requireAuth, (req, res) => {
     wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path,
     publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
     statamic_blueprint, statamic_site, statamic_category,
+    astro_repo_url, astro_repo_path, astro_branch, astro_content_dir, astro_covers_dir,
+    astro_git_token, astro_git_author_name, astro_git_author_email,
   } = req.body;
 
   const platform = publishing_platform || 'wordpress';
@@ -63,8 +70,10 @@ router.post('/api/configs', requireAuth, (req, res) => {
       slug, name, domain, wp_url, wp_login_url, wp_username, wp_password,
       wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path,
       publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
-      statamic_blueprint, statamic_site, statamic_category
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      statamic_blueprint, statamic_site, statamic_category,
+      astro_repo_url, astro_repo_path, astro_branch, astro_content_dir, astro_covers_dir,
+      astro_git_token, astro_git_author_name, astro_git_author_email
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     slug, name, domain,
     wp_url || '', wp_login_url || '', wp_username || '', wp_password || '',
@@ -73,13 +82,18 @@ router.post('/api/configs', requireAuth, (req, res) => {
     context_path || '', rules_path || '',
     platform,
     statamic_url || '', statamic_api_token || '', statamic_collection || '', statamic_cp_username || '',
-    statamic_blueprint || 'article', statamic_site || 'default', statamic_category || ''
+    statamic_blueprint || 'article', statamic_site || 'default', statamic_category || '',
+    astro_repo_url || '', astro_repo_path || '', astro_branch || 'feature/blog-automation',
+    astro_content_dir || 'src/content/blog', astro_covers_dir || 'src/assets/blog-covers',
+    astro_git_token || '', astro_git_author_name || '', astro_git_author_email || ''
   );
 
   const config = db.prepare(`
     SELECT id, slug, name, domain, wp_url, wp_username, wp_method, wp_category, context_path,
            publishing_platform, statamic_url, statamic_collection, statamic_cp_username,
-           statamic_blueprint, statamic_site, statamic_category
+           statamic_blueprint, statamic_site, statamic_category,
+           astro_repo_url, astro_repo_path, astro_branch, astro_content_dir, astro_covers_dir,
+           astro_git_author_name, astro_git_author_email
     FROM blog_configs WHERE id = ?
   `).get(result.lastInsertRowid);
   res.status(201).json({ ok: true, config });
@@ -92,6 +106,8 @@ router.put('/api/configs/:id', requireAuth, (req, res) => {
     wp_category, wp_author_id, context_path, rules_path, is_active,
     publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
     statamic_blueprint, statamic_site, statamic_category,
+    astro_repo_url, astro_repo_path, astro_branch, astro_content_dir, astro_covers_dir,
+    astro_git_token, astro_git_author_name, astro_git_author_email,
   } = req.body;
   const { wp_password } = req.body;
 
@@ -107,6 +123,9 @@ router.put('/api/configs/:id', requireAuth, (req, res) => {
       publishing_platform = ?, statamic_url = ?, statamic_api_token = ?,
       statamic_collection = ?, statamic_cp_username = ?,
       statamic_blueprint = ?, statamic_site = ?, statamic_category = ?,
+      astro_repo_url = ?, astro_repo_path = ?, astro_branch = ?,
+      astro_content_dir = ?, astro_covers_dir = ?, astro_git_token = ?,
+      astro_git_author_name = ?, astro_git_author_email = ?,
       updated_at = datetime('now')
     WHERE id = ?
   `).run(
@@ -131,6 +150,14 @@ router.put('/api/configs/:id', requireAuth, (req, res) => {
     statamic_blueprint !== undefined ? statamic_blueprint : (existing.statamic_blueprint || 'article'),
     statamic_site !== undefined ? statamic_site : (existing.statamic_site || 'default'),
     statamic_category !== undefined ? statamic_category : (existing.statamic_category || ''),
+    astro_repo_url !== undefined ? astro_repo_url : (existing.astro_repo_url || ''),
+    astro_repo_path !== undefined ? astro_repo_path : (existing.astro_repo_path || ''),
+    astro_branch !== undefined ? astro_branch : (existing.astro_branch || 'feature/blog-automation'),
+    astro_content_dir !== undefined ? astro_content_dir : (existing.astro_content_dir || 'src/content/blog'),
+    astro_covers_dir !== undefined ? astro_covers_dir : (existing.astro_covers_dir || 'src/assets/blog-covers'),
+    astro_git_token || existing.astro_git_token || '',
+    astro_git_author_name !== undefined ? astro_git_author_name : (existing.astro_git_author_name || ''),
+    astro_git_author_email !== undefined ? astro_git_author_email : (existing.astro_git_author_email || ''),
     req.params.id
   );
 
@@ -157,6 +184,21 @@ router.post('/api/configs/:id/test-statamic', requireAuth, async (req, res) => {
     console.error(`[Statamic Test] FAILED: ${result.error}`);
   } else {
     console.log(`[Statamic Test] OK — site: ${result.name}`);
+  }
+  res.json(result);
+});
+
+// Test Astro/git repo connection (lightweight ls-remote, no clone)
+router.post('/api/configs/:id/test-astro-git', requireAuth, async (req, res) => {
+  const config = db.prepare('SELECT * FROM blog_configs WHERE id = ?').get(req.params.id);
+  if (!config) return res.status(404).json({ error: 'Config not found' });
+
+  console.log(`[Astro/Git Test] blog=${config.slug} repo=${config.astro_repo_url} branch=${config.astro_branch || 'feature/blog-automation'} token=${config.astro_git_token ? '(set)' : '(empty)'}`);
+  const result = await astroGitService.testConnection(config);
+  if (!result.ok) {
+    console.error(`[Astro/Git Test] FAILED: ${result.error}`);
+  } else {
+    console.log(`[Astro/Git Test] OK — branch: ${result.branch} exists: ${result.branchExists}`);
   }
   res.json(result);
 });

@@ -157,7 +157,7 @@ function seedBlogConfigsFromEnv() {
 
   for (const SLUG of slugs) {
     const slug = SLUG.toLowerCase();
-    const existing = db.prepare('SELECT id, wp_category, wp_author_id, statamic_cp_username, statamic_api_token, statamic_blueprint, statamic_site, statamic_category FROM blog_configs WHERE slug = ?').get(slug);
+    const existing = db.prepare('SELECT id, wp_category, wp_author_id, statamic_cp_username, statamic_api_token, statamic_blueprint, statamic_site, statamic_category, astro_repo_path, astro_branch, astro_content_dir, astro_covers_dir, astro_git_token, astro_git_author_name, astro_git_author_email FROM blog_configs WHERE slug = ?').get(slug);
     // Category/author are editable in the Settings UI. Env only overrides them when
     // explicitly set — an empty/missing env var keeps the UI-edited DB value instead
     // of resetting to '1' on every restart.
@@ -168,6 +168,10 @@ function seedBlogConfigsFromEnv() {
     // (same pattern as wp_category/wp_author_id so UI-saved credentials survive restarts)
     const envSmPassword = (process.env[`BLOG_${SLUG}_STATAMIC_CP_PASSWORD`] || process.env[`BLOG_${SLUG}_STATAMIC_API_TOKEN`] || '').trim();
     const envSmUsername = (process.env[`BLOG_${SLUG}_STATAMIC_CP_USERNAME`] || '').trim();
+    // Astro/git credentials: same "env wins when non-empty, else preserve DB value" pattern
+    // as Statamic above, so a token rotated via the Settings UI isn't clobbered back to a
+    // stale/empty .env value on every restart.
+    const envAstroToken = (process.env[`BLOG_${SLUG}_ASTRO_GIT_TOKEN`] || '').trim();
     const vals = [
       process.env[`BLOG_${SLUG}_NAME`] || slug,
       process.env[`BLOG_${SLUG}_DOMAIN`] || '',
@@ -189,6 +193,14 @@ function seedBlogConfigsFromEnv() {
       process.env[`BLOG_${SLUG}_STATAMIC_BLUEPRINT`] || existing?.statamic_blueprint || 'article',
       process.env[`BLOG_${SLUG}_STATAMIC_SITE`] || existing?.statamic_site || 'default',
       process.env[`BLOG_${SLUG}_STATAMIC_CATEGORY`] || existing?.statamic_category || '',
+      process.env[`BLOG_${SLUG}_ASTRO_REPO_URL`] || '',
+      process.env[`BLOG_${SLUG}_ASTRO_REPO_PATH`] || existing?.astro_repo_path || `./data/repos/${slug}`,
+      process.env[`BLOG_${SLUG}_ASTRO_BRANCH`] || existing?.astro_branch || 'feature/blog-automation',
+      process.env[`BLOG_${SLUG}_ASTRO_CONTENT_DIR`] || existing?.astro_content_dir || 'src/content/blog',
+      process.env[`BLOG_${SLUG}_ASTRO_COVERS_DIR`] || existing?.astro_covers_dir || 'src/assets/blog-covers',
+      envAstroToken || existing?.astro_git_token || '',
+      process.env[`BLOG_${SLUG}_ASTRO_GIT_AUTHOR`] || existing?.astro_git_author_name || '',
+      process.env[`BLOG_${SLUG}_ASTRO_GIT_AUTHOR_EMAIL`] || existing?.astro_git_author_email || '',
     ];
     if (!existing) {
       db.prepare(`
@@ -196,8 +208,10 @@ function seedBlogConfigsFromEnv() {
           slug, name, domain, wp_url, wp_login_url, wp_username, wp_password,
           wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path,
           publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
-          statamic_blueprint, statamic_site, statamic_category
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          statamic_blueprint, statamic_site, statamic_category,
+          astro_repo_url, astro_repo_path, astro_branch, astro_content_dir, astro_covers_dir,
+          astro_git_token, astro_git_author_name, astro_git_author_email
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(slug, ...vals);
       console.log(`[Setup] Blog config created from .env: ${slug} (${platform})`);
     } else {
@@ -208,6 +222,8 @@ function seedBlogConfigsFromEnv() {
           wp_author_id=?, context_path=?, rules_path=?,
           publishing_platform=?, statamic_url=?, statamic_api_token=?, statamic_collection=?, statamic_cp_username=?,
           statamic_blueprint=?, statamic_site=?, statamic_category=?,
+          astro_repo_url=?, astro_repo_path=?, astro_branch=?, astro_content_dir=?, astro_covers_dir=?,
+          astro_git_token=?, astro_git_author_name=?, astro_git_author_email=?,
           updated_at=datetime('now')
         WHERE slug=?
       `).run(...vals, slug);

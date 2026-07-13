@@ -101,10 +101,11 @@ function imageSpecForBlog(blog = {}) {
   // logo.svg is overlaid afterward (the prompt forbids an AI-drawn logo).
   const isLc = slug === 'lc' || slug === 'laracopilot'
     || /\/blogs\/laracopilot(\/|$)/.test(ctx) || name.includes('laracopilot');
-  // Devlyn: high-res glassmorphism 3D banner with code-composited title overlay.
-  // 1520×760 matches the existing hand-crafted cover images in the asset library.
+  // Devlyn: monochrome cinematic banner generated strictly via Codex image_gen (see
+  // STRICT_CODEX_BLOGS and blogs/devlyn/context/banner-instructions.md) — no title/
+  // badge overlay baked in, matching the devlyn-site asset library's style.
   const isDevlyn = slug === 'devlyn' || /\/blogs\/devlyn(\/|$)/.test(ctx) || name.includes('devlyn');
-  if (isDevlyn) return { width: 1520, height: 760, devlynStyle: true, logoBacking: false, bright: false, preferStock: false, banner: false };
+  if (isDevlyn) return { width: 1280, height: 640, devlynStyle: true, logoBacking: false, bright: false, preferStock: false, banner: false };
   return isVc
     ? { width: 1520, height: 1008, logoBacking: false,        bright: true,  preferStock: false, banner: false }
     : { width: 1200, height: 630,  logoBacking: !naturalLogo, bright: false, preferStock: false, banner: isLc };
@@ -245,21 +246,21 @@ async function fetchPollinationsImage(imagePrompt, opts = {}) {
     const topic = (imagePrompt || 'professional technology concept').substring(0, 800);
 
     // Build a style-augmented prompt.
-    // devlynStyle  → clean 3D glassmorphism with teal accents; title composited later via code
+    // devlynStyle  → monochrome cinematic office/dashboard scene, matches devlyn-site's
+    //                real cover art (src/assets/blog-covers/*) — no text/logo composited on top
     // bright       → ViitorCloud bright/airy commercial photograph
     // default      → dark cinematic 3D illustration
     const styleDirectives = devlynStyle
       ? [
-          '3D isometric glassmorphism tech scene',
-          'clean white light grey minimal background',
-          'frosted translucent glass panels floating in the scene',
-          'teal mint green colored accent elements and decorative shapes',
-          'small decorative 3D geometric plants and leaves in teal',
-          'abstract data visualization charts cubes spheres',
-          'modern SaaS technology aesthetic',
-          '3D render high quality sharp crisp',
-          'center area mostly clear and uncluttered',
-          'professional commercial illustration',
+          'monochrome grayscale scene, black deep charcoal mid-gray and off-white only, with ONE consistent soft mint-green glow accent on a single element (a panel, an icon, a screen glow, a line) — this green glow must be clearly visible, not subtle or omitted, everything else stays grayscale',
+          'ultra dark near-black background',
+          'moody cinematic low-key lighting with dramatic rim lighting on edges and silhouettes',
+          'photorealistic 3D render / product-render quality',
+          'the scene, subject, and composition must be chosen specifically for this article topic, not a generic tech-office default — a different topic must look like a genuinely different image, not the same layout with different icons',
+          'pick ONE: if the topic is about hiring/staffing/talent, show a stack or wall of resume/candidate cards with person-silhouette avatars; if about coding/engineering/dev tools, show one person in close silhouette at a single monitor with an abstract code editor; if about global/remote/offshore teams, show a person facing a wall-sized world map hologram with glowing connection lines between regions; if about data/analytics/metrics, show one or two large abstract charts as glowing panels with little or no human figure; if specifically about automation/workflows, show a left-to-right sequence of 3-5 connected dark panels linked by thin lines with checkmarks; if about business strategy/leadership/growth, show a lone silhouette facing a dark city skyline through a window; if about security/compliance/risk, show one large glowing shield or lock icon; otherwise invent a scene that fits the specific topic',
+          'realistic modern setting at night matching the chosen scene above',
+          'desk props for realism ONLY if a desk/person is part of the chosen scene: open notebook, pen, coffee mug, small potted plant, stacked books or blocks',
+          'wide cinematic banner composition, generous negative space, uncluttered',
           'no text no words no letters no labels no numbers no watermarks',
         ]
       : bright
@@ -288,7 +289,7 @@ async function fetchPollinationsImage(imagePrompt, opts = {}) {
         ];
 
     const VC_INSTRUCTION = 'based on the blog content, create an image of size 1520 x 1008. Do not add text into it';
-    const DEVLYN_INSTRUCTION = 'based on the blog topic, create a clean 3D glassmorphism background at 1520 x 760. Do not add any text into it';
+    const DEVLYN_INSTRUCTION = 'based on the blog topic, create a monochrome cinematic dark office/tech-dashboard scene at 1280 x 640 with one clearly visible soft mint-green glowing accent element. Do not add any text, logo, or title into it';
     const promptParts = devlynStyle
       ? [topic, DEVLYN_INSTRUCTION, ...styleDirectives]
       : bright
@@ -1014,7 +1015,8 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
     return false;
   };
   // AI generation via Pollinations (free, no key) — the realism-prompted fallback.
-  // For Devlyn (devlynStyle), also composites the title + category badge on top.
+  // Devlyn (devlynStyle) uses the raw AI background as-is, matching devlyn-site's real
+  // cover art, which has no title/category text or badge baked into the image.
   const tryAi = async () => {
     try {
       const aiBuffer = await fetchPollinationsImage(imagePrompt || keyword, {
@@ -1022,10 +1024,8 @@ async function saveTempImage(title, keyword, theme, imagePrompt, blog = {}, blog
       });
       if (aiBuffer) {
         if (spec.devlynStyle) {
-          const cat = blog.statamic_category || blog.wp_category_name || '';
-          const composited = await compositeDevlynOverlay(aiBuffer, title, cat, spec.width, spec.height);
-          buffer = composited || aiBuffer;
-          source = 'devlyn-banner'; // skip logo-composite step below (title panel already rendered)
+          buffer = aiBuffer;
+          source = 'devlyn-banner'; // skip logo-composite step below — matches devlyn-site's plain, text-free covers
         } else {
           buffer = aiBuffer;
           source = 'pollinations';

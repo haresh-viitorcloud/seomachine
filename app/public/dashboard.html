@@ -61,6 +61,7 @@
     .stage-pending    { color: #64748b; }
     .stage-generating { color: #818cf8; }
     .stage-posting    { color: #60a5fa; }
+    .stage-review     { color: #7dd3fc; }
     .stage-drafted    { color: #4ade80; }
     .stage-error      { color: #f87171; }
     .stage-skipped    { color: #475569; }
@@ -316,13 +317,38 @@
 
     <div class="preview-section">
       <h4>Title</h4>
-      <div id="pvTitle" style="font-size:16px;font-weight:600;line-height:1.4"></div>
+      <div id="pvTitleView" style="font-size:16px;font-weight:600;line-height:1.4"></div>
+      <input id="pvTitleEdit" class="form-control hidden" type="text" />
+    </div>
+
+    <div id="pvCoverWrap" class="preview-section hidden">
+      <h4>Cover Image</h4>
+      <img id="pvCoverImage" style="max-width:100%;border-radius:8px;border:1px solid var(--border)" alt="Generated cover" />
+    </div>
+
+    <!-- Astro/git-only frontmatter fields — editable while the post is staged for review -->
+    <div id="pvFrontmatterFields" class="preview-section hidden">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label class="form-label" style="font-size:11px">Category</label>
+          <select id="pvCat" class="form-control"></select>
+        </div>
+        <div>
+          <label class="form-label" style="font-size:11px">Author</label>
+          <input id="pvAuthor" class="form-control" type="text" />
+        </div>
+      </div>
+      <div style="display:flex;gap:16px;margin-top:10px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="pvFeatured"> Featured</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="pvNoindex"> Noindex</label>
+      </div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div class="preview-section" style="margin:0">
-        <h4>Meta Description</h4>
-        <div id="pvMeta" class="text-small text-muted"></div>
+        <h4>Meta Description / Excerpt</h4>
+        <div id="pvMetaView" class="text-small text-muted"></div>
+        <textarea id="pvMetaEdit" class="form-control hidden" rows="3"></textarea>
       </div>
       <div class="preview-section" style="margin:0">
         <h4>Tags</h4>
@@ -332,16 +358,12 @@
 
     <div class="preview-section">
       <h4>Article Content</h4>
-      <div class="preview-content-box" id="pvContent"></div>
-    </div>
-
-    <div class="preview-section">
-      <h4>Featured Image Prompt</h4>
-      <div id="pvImagePrompt" class="text-small text-muted" style="font-style:italic;background:var(--surface2);padding:10px;border-radius:6px"></div>
-      <div id="pvImageSource" style="margin-top:6px"></div>
+      <div class="preview-content-box" id="pvContentView"></div>
+      <textarea id="pvContentEdit" class="form-control hidden" rows="16" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.6"></textarea>
     </div>
 
     <div id="pvWpLink" style="margin-top:12px"></div>
+    <div id="pvCommitArea" style="margin-top:12px"></div>
   </div>
 </div>
 
@@ -631,8 +653,8 @@ function renderPipeline(jobs) {
 }
 
 function renderJobRow(j) {
-  const statusIcons = { pending:'⏳', generating:'⚡', posting:'📤', drafted:'✅', error:'❌', skipped:'⏭', paused:'⏸' };
-  const stageLabelTxt = { pending:'Pending', generating:'Generating AI Content', posting:'Posting to WordPress', drafted:'Drafted', error:'Error', skipped:'Skipped', paused:'Paused' };
+  const statusIcons = { pending:'⏳', generating:'⚡', posting:'📤', review:'👀', drafted:'✅', error:'❌', skipped:'⏭', paused:'⏸' };
+  const stageLabelTxt = { pending:'Pending', generating:'Generating AI Content', posting:'Posting to WordPress', review:'Awaiting Review', drafted:'Drafted', error:'Error', skipped:'Skipped', paused:'Paused' };
   // Usage-limit auto-resume: pending job rescheduled to the limit reset time
   const isLimitWait = j.status === 'pending' && /auto-resuming/i.test(j.error_message || '');
   const icon = isLimitWait ? '⏳' : (statusIcons[j.status] || '•');
@@ -679,7 +701,7 @@ function rowActions(j) {
   btns.push(`<button class="btn btn-secondary btn-sm" onclick="showTimeline('${id}')" title="View timeline logs">📋</button>`);
   if (!active && ['pending','error','paused'].includes(j.status))
     btns.push(`<button class="btn btn-secondary btn-sm" onclick="editJob('${id}')" title="Edit title / keyword">✏️</button>`);
-  if (j.generated_content)
+  if (j.has_content)
     btns.push(`<button class="btn btn-secondary btn-sm" onclick="showPreview('${id}')">👁</button>`);
   if (j.wp_post_url && safeUrl(j.wp_post_url))
     btns.push(`<a href="${safeUrl(j.wp_post_url)}" target="_blank" rel="noopener" class="btn btn-success btn-sm" title="Open WP draft" aria-label="Open WP draft"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>`);
@@ -699,7 +721,7 @@ function rowActions(j) {
   // ── Smart retry actions based on state ──
   if (!active) {
     // Error with content → offer retry post (skip regeneration)
-    if (j.status === 'error' && j.generated_content) {
+    if (j.status === 'error' && j.has_content) {
       btns.push(`<button class="btn btn-info btn-sm" onclick="retryPostJob('${id}')" title="Content already generated — retry WordPress posting only">📤 Retry Post</button>`);
     }
     // Drafted → offer regenerate content (keep WP post, just refresh content)
@@ -892,26 +914,123 @@ function renderSeoScore(seo) {
 }
 
 // ── Preview modal ──
+// Platform-appropriate label/icon for the "view the published post" link — astro-git
+// pushes to GitHub, not WordPress, so the old hardcoded "in WordPress" label was wrong.
+function draftLinkHtml(url, platform) {
+  const href = safeUrl(url);
+  if (!href) return '';
+  const isGit = platform === 'astro-git';
+  const label = isGit ? 'View Commit on GitHub' : 'View/Edit Draft in WordPress';
+  return `<a href="${href}" target="_blank" rel="noopener" class="btn btn-success btn-sm"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>${label}</a>`;
+}
+
 async function showPreview(id) {
   const data = await API.get(`/api/jobs/${id}/preview`);
   if (!data) return;
   renderSeoScore(data.seo);
-  document.getElementById('pvTitle').textContent = data.title || '';
-  document.getElementById('pvMeta').textContent = data.meta_description || '—';
   document.getElementById('pvTags').innerHTML = (data.tags||[]).map(t =>
     `<span class="badge badge-pending" style="margin-right:4px;margin-bottom:4px">${escHtml(t)}</span>`).join('');
-  document.getElementById('pvContent').innerHTML = sanitizePreviewHtml(data.content) || '<p style="color:var(--text-muted)">No content yet.</p>';
-  document.getElementById('pvImagePrompt').textContent = data.image_prompt || '—';
-  const srcLabel = { pexels: 'Pexels', unsplash: 'Unsplash', svg: 'SVG Fallback' }[data.image_source] || data.image_source;
-  document.getElementById('pvImageSource').innerHTML = srcLabel
-    ? `<span class="badge" style="font-size:11px;background:var(--surface2);color:var(--text-muted);border:1px solid var(--border)">Image: ${escHtml(srcLabel)}</span>`
+
+  // Astro/git review gate: staged cover image (before it's ever pushed anywhere)
+  const coverWrap = document.getElementById('pvCoverWrap');
+  if (data.cover_image_url) {
+    document.getElementById('pvCoverImage').src = data.cover_image_url + `?t=${Date.now()}`;
+    coverWrap.classList.remove('hidden');
+  } else {
+    coverWrap.classList.add('hidden');
+  }
+
+  document.getElementById('pvWpLink').innerHTML = draftLinkHtml(data.wp_post_url, data.platform);
+
+  // While a post is staged (not yet committed), show editable fields instead of the
+  // plain read-only view — the admin can verify AND correct content/frontmatter before
+  // deciding to commit. Once committed there's nothing left to edit, so it reverts to
+  // the original read-only display.
+  const editing = !!data.review_ready;
+  document.getElementById('pvTitleView').classList.toggle('hidden', editing);
+  document.getElementById('pvTitleEdit').classList.toggle('hidden', !editing);
+  document.getElementById('pvMetaView').classList.toggle('hidden', editing);
+  document.getElementById('pvMetaEdit').classList.toggle('hidden', !editing);
+  document.getElementById('pvContentView').classList.toggle('hidden', editing);
+  document.getElementById('pvContentEdit').classList.toggle('hidden', !editing);
+  document.getElementById('pvFrontmatterFields').classList.toggle('hidden', !editing);
+
+  if (editing) {
+    document.getElementById('pvTitleEdit').value = data.title || '';
+    document.getElementById('pvMetaEdit').value = data.meta_description || '';
+    document.getElementById('pvContentEdit').value = data.content || '';
+    populateCategorySelect(data.category_options || [], data.category || '');
+    document.getElementById('pvAuthor').value = data.author || 'Devlyn';
+    document.getElementById('pvFeatured').checked = !!data.featured;
+    document.getElementById('pvNoindex').checked = !!data.noindex;
+  } else {
+    document.getElementById('pvTitleView').textContent = data.title || '';
+    document.getElementById('pvMetaView').textContent = data.meta_description || '—';
+    document.getElementById('pvContentView').innerHTML = sanitizePreviewHtml(data.content) || '<p style="color:var(--text-muted)">No content yet.</p>';
+  }
+
+  document.getElementById('pvCommitArea').innerHTML = editing
+    ? `<button class="btn btn-secondary" onclick="saveReviewEdits('${id}')" id="pvSaveBtn">💾 Save Changes</button>
+       <button class="btn btn-primary" onclick="commitJob('${id}')" id="pvCommitBtn">✅ Commit &amp; Push</button>
+       <span class="text-small text-muted" style="margin-left:8px">Pushes to the feature branch — a human still merges it to main to go live.</span>`
     : '';
-  document.getElementById('pvWpLink').innerHTML = safeUrl(data.wp_post_url)
-    ? `<a href="${safeUrl(data.wp_post_url)}" target="_blank" rel="noopener" class="btn btn-success btn-sm"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>View/Edit Draft in WordPress</a>`
-    : '';
+
   document.getElementById('previewModal').classList.remove('hidden');
 }
 function closePreview() { document.getElementById('previewModal').classList.add('hidden'); }
+
+// Fills the category <select> with the site's existing categories. Selects `current`
+// if it's one of them; if not (e.g. a category set before this dropdown existed), adds
+// it as an extra option too so it's shown correctly rather than silently dropped.
+const JUNK_CATEGORIES = new Set(['TEST', 'CUSTOM']);
+function populateCategorySelect(options, current) {
+  const sel = document.getElementById('pvCat');
+  const norm = (s) => s.trim().toUpperCase();
+  const isJunk = JUNK_CATEGORIES.has(norm(current || ''));
+  const matchesExisting = options.some(o => norm(o) === norm(current || ''));
+  // Never re-add a junk value (e.g. a leftover "custom"/"test" from before this dropdown
+  // existed) just because it happens to be the job's current saved category.
+  const allOptions = matchesExisting || !current || isJunk ? options : [...options, current];
+  sel.innerHTML = allOptions.map(o =>
+    `<option value="${escHtml(o)}"${!isJunk && norm(o) === norm(current || '') ? ' selected' : ''}>${escHtml(o)}</option>`
+  ).join('');
+}
+function currentCategoryValue() {
+  return document.getElementById('pvCat').value;
+}
+
+async function saveReviewEdits(id) {
+  const btn = document.getElementById('pvSaveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+  const data = await API.put(`/api/jobs/${id}/review-content`, {
+    title: document.getElementById('pvTitleEdit').value.trim(),
+    content: document.getElementById('pvContentEdit').value,
+    excerpt: document.getElementById('pvMetaEdit').value.trim(),
+    cat: currentCategoryValue(),
+    author: document.getElementById('pvAuthor').value.trim(),
+    featured: document.getElementById('pvFeatured').checked,
+    noindex: document.getElementById('pvNoindex').checked,
+  });
+  if (data?.error) {
+    showToast(data.error, 'warning');
+  } else {
+    showToast('Changes saved to the staged post', 'success');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '💾 Save Changes'; }
+}
+
+async function commitJob(id) {
+  const btn = document.getElementById('pvCommitBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Committing…'; }
+  const data = await API.post(`/api/jobs/${id}/commit-astro`);
+  if (data?.error) {
+    showToast(data.error, 'warning');
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Commit & Push'; }
+  } else {
+    showToast('Commit started — re-validating and pushing to the feature branch...', 'success');
+    closePreview();
+  }
+}
 
 // ── Timeline modal ──
 async function showTimeline(id) {
@@ -1015,8 +1134,9 @@ socket.on('job:updated', (job) => {
     if (!stillActive) hideActiveBanner();
   }
 
-  // Refresh analytics shortly after a job finishes generating/posting
-  if (['drafted','error','posting'].includes(job.status)) scheduleAnalyticsRefresh();
+  // Refresh analytics shortly after a job finishes generating/posting (a 'review' job
+  // has already consumed real generation cost/tokens even though nothing is committed yet)
+  if (['drafted','error','posting','review'].includes(job.status)) scheduleAnalyticsRefresh();
 });
 socket.on('log:new', (log) => prependLog(log));
 socket.on('stats:update', (stats) => updateStats(stats));

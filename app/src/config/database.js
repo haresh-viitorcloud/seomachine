@@ -136,6 +136,19 @@ function initializeDatabase() {
     "ALTER TABLE blog_configs ADD COLUMN statamic_blueprint TEXT DEFAULT 'article'",
     "ALTER TABLE blog_configs ADD COLUMN statamic_site TEXT DEFAULT 'default'",
     "ALTER TABLE blog_configs ADD COLUMN statamic_category TEXT DEFAULT ''",
+    "ALTER TABLE blog_configs ADD COLUMN astro_repo_url TEXT DEFAULT ''",
+    "ALTER TABLE blog_configs ADD COLUMN astro_repo_path TEXT DEFAULT ''",
+    "ALTER TABLE blog_configs ADD COLUMN astro_branch TEXT DEFAULT 'feature/blog-automation'",
+    "ALTER TABLE blog_configs ADD COLUMN astro_content_dir TEXT DEFAULT 'src/content/blog'",
+    "ALTER TABLE blog_configs ADD COLUMN astro_covers_dir TEXT DEFAULT 'src/assets/blog-covers'",
+    "ALTER TABLE blog_configs ADD COLUMN astro_git_token TEXT DEFAULT ''",
+    "ALTER TABLE blog_configs ADD COLUMN astro_git_author_name TEXT DEFAULT ''",
+    "ALTER TABLE blog_configs ADD COLUMN astro_git_author_email TEXT DEFAULT ''",
+    // Astro/git review-gate: admin-editable frontmatter fields not covered by the
+    // existing generated_title/generated_category/generated_meta columns.
+    "ALTER TABLE jobs ADD COLUMN review_featured INTEGER DEFAULT 0",
+    "ALTER TABLE jobs ADD COLUMN review_author TEXT DEFAULT ''",
+    "ALTER TABLE jobs ADD COLUMN review_noindex INTEGER DEFAULT 0",
   ];
   for (const sql of migrations) {
     // Only swallow the expected "duplicate column" case; surface any other failure

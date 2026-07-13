@@ -23,6 +23,15 @@
     .badge-error      { background: rgba(239,68,68,.15);   color: #f87171; }
     .badge-paused     { background: rgba(245,158,11,.15);  color: #fbbf24; }
     .badge-skipped    { background: rgba(71,85,105,.15);   color: #64748b; }
+    .badge-review     { background: rgba(56,189,248,.15);  color: #7dd3fc; }
+
+    /* ── Preview modal (content + cover image review) ── */
+    .preview-section { margin-bottom: 16px; }
+    .preview-section h4 { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+    .preview-content-box { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 14px; font-size: 13px; line-height: 1.7; max-height: 360px; overflow-y: auto; }
+    .preview-content-box h1, .preview-content-box h2 { color: var(--text); margin: 10px 0 6px; }
+    .preview-content-box h3 { color: var(--text); margin: 8px 0 4px; font-size: 14px; }
+    .preview-content-box p, .preview-content-box li { color: var(--text-muted); margin-bottom: 6px; }
 
     /* ── Filter tabs ── */
     .filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -222,38 +231,6 @@
   </main>
 </div>
 
-<div id="feedbackModal" class="modal-overlay hidden">
-  <div class="modal" style="max-width:560px">
-    <button class="modal-close" onclick="closeFeedback()">✕</button>
-    <h2 style="font-size:16px;margin-bottom:6px">💬 Feedback for the AI</h2>
-    <p class="text-muted text-small" style="margin-bottom:16px">
-      Tell the AI what to improve or keep. Your notes are saved for this blog and applied automatically
-      on every future generation, so the next posts get better.
-    </p>
-    <input type="hidden" id="feedbackJobId">
-
-    <div class="form-group">
-      <label class="form-label">Was this draft good overall?</label>
-      <div style="display:flex;gap:8px">
-        <button type="button" class="btn btn-secondary btn-sm" id="fbRatingUp" onclick="setFbRating('up')">👍 Good</button>
-        <button type="button" class="btn btn-secondary btn-sm" id="fbRatingDown" onclick="setFbRating('down')">👎 Needs work</button>
-      </div>
-    </div>
-
-    <div class="form-group">
-      <label class="form-label">What should the AI do differently next time?</label>
-      <textarea id="feedbackText" class="form-control" rows="4"
-        placeholder="e.g. Keep the intro under 3 sentences, add a comparison table, avoid the word 'leverage', use a more confident tone, include a stronger CTA…"></textarea>
-    </div>
-
-    <div id="existingFeedback" style="margin-bottom:8px"></div>
-
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
-      <button class="btn btn-secondary" onclick="closeFeedback()">Cancel</button>
-      <button class="btn btn-primary" id="fbSubmitBtn" onclick="submitFeedback()">Save Feedback</button>
-    </div>
-  </div>
-</div>
 
 <!-- Edit Job Modal -->
 <div id="jobEditModal" class="modal-overlay hidden">
@@ -287,6 +264,91 @@
       <button class="btn btn-secondary" onclick="closeJobEdit()">Cancel</button>
       <button class="btn btn-primary" onclick="saveJobEdit()">Save Changes</button>
     </div>
+  </div>
+</div>
+
+<!-- Feedback Modal -->
+<div id="feedbackModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:560px">
+    <button class="modal-close" onclick="closeFeedback()">✕</button>
+    <h2 style="font-size:16px;margin-bottom:6px">💬 Feedback for the AI</h2>
+    <p class="text-muted text-small" style="margin-bottom:16px">
+      Tell the AI what to improve or keep. Your notes are saved for this blog and applied automatically
+      on every future generation, so the next posts get better.
+    </p>
+    <input type="hidden" id="feedbackJobId">
+
+    <div class="form-group">
+      <label class="form-label">Was this draft good overall?</label>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn btn-secondary btn-sm" id="fbRatingUp" onclick="setFbRating('up')">👍 Good</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="fbRatingDown" onclick="setFbRating('down')">👎 Needs work</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">What should the AI do differently next time?</label>
+      <textarea id="feedbackText" class="form-control" rows="4"
+        placeholder="e.g. Keep the intro under 3 sentences, add a comparison table, avoid the word 'leverage', use a more confident tone, include a stronger CTA…"></textarea>
+    </div>
+
+    <div id="existingFeedback" style="margin-bottom:8px"></div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+      <button class="btn btn-secondary" onclick="closeFeedback()">Cancel</button>
+      <button class="btn btn-primary" id="fbSubmitBtn" onclick="submitFeedback()">Save Feedback</button>
+    </div>
+  </div>
+</div>
+
+<!-- Preview Modal (content + cover image; Commit button for astro-git review-gate jobs) -->
+<div id="previewModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:780px">
+    <button class="modal-close" onclick="closePreview()">✕</button>
+
+    <div class="preview-section">
+      <h4>Title</h4>
+      <div id="pvTitleView" style="font-size:16px;font-weight:600;line-height:1.4"></div>
+      <input id="pvTitleEdit" class="form-control hidden" type="text" />
+    </div>
+
+    <div id="pvCoverWrap" class="preview-section hidden">
+      <h4>Cover Image</h4>
+      <img id="pvCoverImage" style="max-width:100%;border-radius:8px;border:1px solid var(--border)" alt="Generated cover" />
+    </div>
+
+    <!-- Astro/git-only frontmatter fields — editable while the post is staged for review -->
+    <div id="pvFrontmatterFields" class="preview-section hidden">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label class="form-label" style="font-size:11px">Category</label>
+          <select id="pvCat" class="form-control"></select>
+        </div>
+        <div>
+          <label class="form-label" style="font-size:11px">Author</label>
+          <input id="pvAuthor" class="form-control" type="text" />
+        </div>
+      </div>
+      <div style="display:flex;gap:16px;margin-top:10px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="pvFeatured"> Featured</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="pvNoindex"> Noindex</label>
+      </div>
+    </div>
+
+    <div class="preview-section">
+      <h4>Meta Description / Excerpt</h4>
+      <div id="pvMetaView" class="text-small text-muted"></div>
+      <textarea id="pvMetaEdit" class="form-control hidden" rows="3"></textarea>
+    </div>
+
+    <div class="preview-section">
+      <h4>Article Content</h4>
+      <div class="preview-content-box" id="pvContentView"></div>
+      <textarea id="pvContentEdit" class="form-control hidden" rows="16" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.6"></textarea>
+    </div>
+
+    <div id="pvWpLink" style="margin-top:12px"></div>
+    <div id="pvCommitArea" style="margin-top:12px"></div>
   </div>
 </div>
 
@@ -568,14 +630,17 @@ function renderJobRow(j, blogName, blogPlatform) {
   const srcLabel = { pexels: '📷 Pexels', unsplash: '📷 Unsplash', svg: '🎨 SVG' }[j.image_source] || '';
   const imgSrcBadge = srcLabel ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px">${escHtml(srcLabel)}</div>` : '';
   const isStatamic = (blogPlatform || '') === 'statamic';
-  const platformPrefix = isStatamic ? 'SM' : 'WP';
-  const platformBtnStyle = isStatamic
+  const isAstroGit = (blogPlatform || '') === 'astro-git';
+  const platformPrefix = isAstroGit ? 'GH' : isStatamic ? 'SM' : 'WP';
+  const platformBtnStyle = isAstroGit
+    ? 'font-size:11px;background:rgba(56,189,248,.18);color:#7dd3fc;border:1px solid rgba(56,189,248,.35)'
+    : isStatamic
     ? 'font-size:11px;background:rgba(13,148,136,.18);color:#2dd4bf;border:1px solid rgba(13,148,136,.35)'
     : 'font-size:11px';
   // When wp_post_id is a raw URL (Statamic fallback when entry ID wasn't extracted),
-  // show "View" instead of the full URL to prevent table overflow.
+  // or a long slug (astro-git), show "View" instead of the full id to prevent table overflow.
   const postIdIsUrl = j.wp_post_id && /^https?:\/\//.test(j.wp_post_id);
-  const postLabel = postIdIsUrl ? 'View' : (j.wp_post_id ? `#${j.wp_post_id}` : '');
+  const postLabel = (postIdIsUrl || isAstroGit) ? 'View' : (j.wp_post_id ? `#${j.wp_post_id}` : '');
   const linkHref = safeUrl(j.wp_post_url) || (postIdIsUrl ? safeUrl(j.wp_post_id) : '');
   const wpLink = (j.wp_post_id && linkHref)
     ? `<a href="${linkHref}" target="_blank" rel="noopener" class="btn btn-success btn-sm" style="${platformBtnStyle}">${platformPrefix} ${postLabel}</a>${imgSrcBadge}`
@@ -637,6 +702,10 @@ function buildActions(j) {
   // ── Edit (pending / paused / error) ──
   if (!active && ['pending','paused','error'].includes(j.status))
     btns.push(`<button class="btn btn-secondary btn-sm" ${s} onclick="jobEdit('${id}')" title="Edit title, keyword or add instructions">✏️</button>`);
+
+  // ── Preview content + cover image (also where the Commit button lives, for astro-git review-gate jobs) ──
+  if (j.has_content)
+    btns.push(`<button class="btn btn-secondary btn-sm" ${s} onclick="showPreview('${id}')" title="View generated content and cover image">👁</button>`);
 
   // ── Smart retry based on state ──
   if (!active) {
@@ -898,6 +967,137 @@ async function saveJobEdit() {
   else showToast(data?.error || 'Failed', 'warning');
 }
 
+// ── Preview (content + cover image) / Commit (astro-git review-gate) ──
+function sanitizePreviewHtml(html) {
+  if (!html) return '';
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(html);
+  const BANNED = ['script','iframe','object','embed','link','style','meta','base','form'];
+  tpl.content.querySelectorAll(BANNED.join(',')).forEach(el => el.remove());
+  tpl.content.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(attr => {
+      const name = attr.name.toLowerCase();
+      const val = (attr.value || '').trim();
+      if (name.startsWith('on')) el.removeAttribute(attr.name);
+      else if ((name === 'href' || name === 'src' || name === 'xlink:href')
+        && /^\s*(javascript|data|vbscript):/i.test(val)) el.removeAttribute(attr.name);
+    });
+  });
+  return tpl.innerHTML;
+}
+
+// Platform-appropriate label for the "view the published post" link — astro-git
+// pushes to GitHub, not WordPress/Statamic.
+function draftLinkHtml(url, platform) {
+  const href = safeUrl(url);
+  if (!href) return '';
+  const label = platform === 'astro-git' ? 'View Commit on GitHub' : 'View/Edit Draft';
+  return `<a href="${href}" target="_blank" rel="noopener" class="btn btn-success btn-sm">${label}</a>`;
+}
+
+async function showPreview(id) {
+  const data = await API.get(`/api/jobs/${id}/preview`);
+  if (!data) return;
+
+  document.getElementById('pvWpLink').innerHTML = draftLinkHtml(data.wp_post_url, data.platform);
+
+  // While a post is staged (not yet committed), show editable fields instead of the
+  // plain read-only view. Once committed there's nothing left to edit, so it reverts
+  // to the original read-only display.
+  const editing = !!data.review_ready;
+  document.getElementById('pvTitleView').classList.toggle('hidden', editing);
+  document.getElementById('pvTitleEdit').classList.toggle('hidden', !editing);
+  document.getElementById('pvMetaView').classList.toggle('hidden', editing);
+  document.getElementById('pvMetaEdit').classList.toggle('hidden', !editing);
+  document.getElementById('pvContentView').classList.toggle('hidden', editing);
+  document.getElementById('pvContentEdit').classList.toggle('hidden', !editing);
+  document.getElementById('pvFrontmatterFields').classList.toggle('hidden', !editing);
+
+  if (editing) {
+    document.getElementById('pvTitleEdit').value = data.title || '';
+    document.getElementById('pvMetaEdit').value = data.meta_description || '';
+    document.getElementById('pvContentEdit').value = data.content || '';
+    populateCategorySelect(data.category_options || [], data.category || '');
+    document.getElementById('pvAuthor').value = data.author || 'Devlyn';
+    document.getElementById('pvFeatured').checked = !!data.featured;
+    document.getElementById('pvNoindex').checked = !!data.noindex;
+  } else {
+    document.getElementById('pvTitleView').textContent = data.title || '';
+    document.getElementById('pvMetaView').textContent = data.meta_description || '—';
+    document.getElementById('pvContentView').innerHTML = sanitizePreviewHtml(data.content) || '<p style="color:var(--text-muted)">No content yet.</p>';
+  }
+
+  const coverWrap = document.getElementById('pvCoverWrap');
+  if (data.cover_image_url) {
+    document.getElementById('pvCoverImage').src = data.cover_image_url + `?t=${Date.now()}`;
+    coverWrap.classList.remove('hidden');
+  } else {
+    coverWrap.classList.add('hidden');
+  }
+
+  document.getElementById('pvCommitArea').innerHTML = editing
+    ? `<button class="btn btn-secondary" onclick="saveReviewEdits('${id}')" id="pvSaveBtn">💾 Save Changes</button>
+       <button class="btn btn-primary" onclick="commitJob('${id}')" id="pvCommitBtn">✅ Commit &amp; Push</button>
+       <span class="text-small text-muted" style="margin-left:8px">Pushes to the feature branch — a human still merges it to main to go live.</span>`
+    : '';
+
+  document.getElementById('previewModal').classList.remove('hidden');
+}
+function closePreview() { document.getElementById('previewModal').classList.add('hidden'); }
+
+// Fills the category <select> with the site's existing categories. Selects `current`
+// if it's one of them; if not (e.g. a category set before this dropdown existed), adds
+// it as an extra option too so it's shown correctly rather than silently dropped.
+const JUNK_CATEGORIES = new Set(['TEST', 'CUSTOM']);
+function populateCategorySelect(options, current) {
+  const sel = document.getElementById('pvCat');
+  const norm = (s) => s.trim().toUpperCase();
+  const isJunk = JUNK_CATEGORIES.has(norm(current || ''));
+  const matchesExisting = options.some(o => norm(o) === norm(current || ''));
+  // Never re-add a junk value (e.g. a leftover "custom"/"test" from before this dropdown
+  // existed) just because it happens to be the job's current saved category.
+  const allOptions = matchesExisting || !current || isJunk ? options : [...options, current];
+  sel.innerHTML = allOptions.map(o =>
+    `<option value="${escHtml(o)}"${!isJunk && norm(o) === norm(current || '') ? ' selected' : ''}>${escHtml(o)}</option>`
+  ).join('');
+}
+function currentCategoryValue() {
+  return document.getElementById('pvCat').value;
+}
+
+async function saveReviewEdits(id) {
+  const btn = document.getElementById('pvSaveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+  const data = await API.put(`/api/jobs/${id}/review-content`, {
+    title: document.getElementById('pvTitleEdit').value.trim(),
+    content: document.getElementById('pvContentEdit').value,
+    excerpt: document.getElementById('pvMetaEdit').value.trim(),
+    cat: currentCategoryValue(),
+    author: document.getElementById('pvAuthor').value.trim(),
+    featured: document.getElementById('pvFeatured').checked,
+    noindex: document.getElementById('pvNoindex').checked,
+  });
+  if (data?.error) {
+    showToast(data.error, 'warning');
+  } else {
+    showToast('Changes saved to the staged post', 'success');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '💾 Save Changes'; }
+}
+
+async function commitJob(id) {
+  const btn = document.getElementById('pvCommitBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Committing…'; }
+  const data = await API.post(`/api/jobs/${id}/commit-astro`);
+  if (data?.error) {
+    showToast(data.error, 'warning');
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Commit & Push'; }
+  } else {
+    showToast('Commit started — re-validating and pushing to the feature branch...', 'success');
+    closePreview();
+  }
+}
+
 // ── Socket live updates (debounced — many events fire during generation) ──
 socket.on('job:updated', () => scheduleLoad()); // render() restores the open log panel
 socket.on('job:created', () => scheduleLoad());
@@ -914,10 +1114,10 @@ socket.on('log:new', (log) => {
 
 // ── Helpers ──
 function statusIcon(s) {
-  return { pending:'⏳', generating:'⚡', posting:'📤', drafted:'✅', error:'❌', paused:'⏸', skipped:'⏭' }[s] || '•';
+  return { pending:'⏳', generating:'⚡', posting:'📤', review:'👀', drafted:'✅', error:'❌', paused:'⏸', skipped:'⏭' }[s] || '•';
 }
 function statusLabel(s) {
-  return { pending:'Pending', generating:'Generating', posting:'Posting', drafted:'Drafted', error:'Error', paused:'Paused', skipped:'Skipped' }[s] || s;
+  return { pending:'Pending', generating:'Generating', posting:'Posting', review:'Awaiting Review', drafted:'Drafted', error:'Error', paused:'Paused', skipped:'Skipped' }[s] || s;
 }
 function fmtDate(dt) {
   if (!dt) return '—';

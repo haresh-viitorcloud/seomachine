@@ -10,6 +10,7 @@ const queueService = require('./queueService');
 const claudeService = require('./claudeService');
 const wordpressService = require('./wordpressService');
 const statamicService  = require('./statamicService');
+const astroGitService  = require('./astroGitService');
 const { db } = require('../config/database');
 
 let _processing = false;
@@ -18,6 +19,12 @@ let _drainMode = false; // true when explicitly triggered (auto-start / process-
 
 function getBlogConfig(blogId) {
   return db.prepare('SELECT * FROM blog_configs WHERE id = ?').get(blogId);
+}
+
+function platformLabel(platform) {
+  if (platform === 'astro-git') return 'Astro/Git';
+  if (platform === 'statamic') return 'Statamic';
+  return 'WordPress';
 }
 
 /**
@@ -148,10 +155,10 @@ async function processJob(job) {
     }
   }
 
-  // ── Step 2: Post to WordPress or Statamic ──
+  // ── Step 2: Post to WordPress, Statamic, or Astro/git ──
   const platform = (blogConfig.publishing_platform || 'wordpress').toLowerCase();
   queueService.updateJobStatus(job.id, 'posting');
-  queueService.addLog(job.id, 'info', `Posting draft to ${platform === 'statamic' ? 'Statamic' : 'WordPress'}: ${blogConfig.name}`);
+  queueService.addLog(job.id, 'info', `Posting draft to ${platformLabel(platform)}: ${blogConfig.name}`);
 
   try {
     const rawData = JSON.parse(job.raw_data || '{}');
@@ -163,36 +170,53 @@ async function processJob(job) {
     generatedContent.seo_title = claudeService.normalizeSeoTitle(generatedContent.seo_title || generatedContent.title, focusKw);
     generatedContent.meta_description = claudeService.normalizeMeta(generatedContent.meta_description);
 
-    let result;
-    if (platform === 'statamic') {
-      result = await statamicService.postDraft(
+    if (platform === 'astro-git') {
+      // Astro/git has a manual review gate — stage the post + image for a human to
+      // inspect (Dashboard preview) and only commit/push once they click Commit
+      // (schedulerService.commitReviewJob). See astroGitService.prepareForReview().
+      const result = await astroGitService.prepareForReview(
+        job.id,
         blogConfig,
         generatedContent,
         rawData,
         (msg) => queueService.addLog(job.id, 'info', msg)
       );
+      queueService.updateJobStatus(job.id, 'review', {
+        wp_post_id: result.slug,
+        image_source: result.image_source || '',
+      });
+      queueService.addLog(job.id, 'success', `Staged for review: "${result.title}" — open the preview to verify content and image, then click Commit to publish.`);
     } else {
-      result = await wordpressService.postDraft(
-        blogConfig,
-        generatedContent,
-        rawData,
-        (msg) => queueService.addLog(job.id, 'info', msg)
-      );
+      let result;
+      if (platform === 'statamic') {
+        result = await statamicService.postDraft(
+          blogConfig,
+          generatedContent,
+          rawData,
+          (msg) => queueService.addLog(job.id, 'info', msg)
+        );
+      } else {
+        result = await wordpressService.postDraft(
+          blogConfig,
+          generatedContent,
+          rawData,
+          (msg) => queueService.addLog(job.id, 'info', msg)
+        );
+      }
+
+      queueService.updateJobStatus(job.id, 'drafted', {
+        wp_post_id: result.post_id,
+        wp_post_url: result.edit_url || result.post_url,
+        image_source: result.image_source || '',
+      });
+
+      queueService.addLog(job.id, 'success', `Draft saved successfully! Post ID: ${result.post_id}`);
     }
-
-    queueService.updateJobStatus(job.id, 'drafted', {
-      wp_post_id: result.post_id,
-      wp_post_url: result.edit_url || result.post_url,
-      image_source: result.image_source || '',
-    });
-
-    queueService.addLog(job.id, 'success', `Draft saved successfully! Post ID: ${result.post_id}`);
   } catch (err) {
-    const platformLabel = platform === 'statamic' ? 'Statamic' : 'WordPress';
     queueService.updateJobStatus(job.id, 'error', {
-      error_message: `${platformLabel} posting failed: ${err.message}`,
+      error_message: `${platformLabel(platform)} posting failed: ${err.message}`,
     });
-    queueService.addLog(job.id, 'error', `${platformLabel} posting failed: ${err.message}`);
+    queueService.addLog(job.id, 'error', `${platformLabel(platform)} posting failed: ${err.message}`);
   }
 
   // Check if the entire upload batch is now complete (no pending/generating/posting left)
@@ -341,4 +365,48 @@ async function processJobById(jobId) {
   return job;
 }
 
-module.exports = { start, stop, processNext, processJobById, isProcessing: () => _processing };
+/**
+ * Commits a staged review job (astro-git human-review gate) — re-syncs the managed
+ * clone, restores the exact reviewed bytes, re-runs the QA gate as a safety net, then
+ * commits and pushes. Runs asynchronously like processJobById: the caller gets an
+ * immediate ack and the job's status update arrives via the existing job:updated
+ * socket event. Reuses the same _processing mutex as the cron worker so this can never
+ * run concurrently with another job touching the same shared git clone.
+ */
+function commitReviewJob(jobId) {
+  if (_processing) throw new Error('A job is already being processed. Please wait and try again.');
+  const job = queueService.getJob(jobId);
+  if (!job) throw new Error('Job not found');
+  // Allow retrying a commit that previously failed after staging succeeded (status
+  // 'error' but staging still present) as well as the normal 'review' state.
+  if (job.status !== 'review' && job.status !== 'error') {
+    throw new Error(`Job is not awaiting review (status: ${job.status}).`);
+  }
+  const blogConfig = getBlogConfig(job.blog_id);
+  if (!blogConfig) throw new Error(`Blog config ID ${job.blog_id} not found`);
+
+  _processing = true;
+  queueService.addLog(jobId, 'info', 'Committing reviewed post — re-syncing branch and re-running QA gate...');
+
+  setImmediate(() => {
+    astroGitService.commitStaged(jobId, blogConfig, (msg) => queueService.addLog(jobId, 'info', msg))
+      .then((result) => {
+        queueService.updateJobStatus(jobId, 'drafted', {
+          wp_post_id: result.post_id,
+          wp_post_url: result.edit_url || result.post_url,
+        });
+        queueService.addLog(jobId, 'success', `Committed and pushed! Post ID: ${result.post_id}`);
+      })
+      .catch((err) => {
+        queueService.updateJobStatus(jobId, 'error', { error_message: `Commit failed: ${err.message}` });
+        queueService.addLog(jobId, 'error', `Commit failed: ${err.message}`);
+      })
+      .finally(() => {
+        _processing = false;
+      });
+  });
+
+  return job;
+}
+
+module.exports = { start, stop, processNext, processJobById, commitReviewJob, isProcessing: () => _processing };
