@@ -116,7 +116,7 @@ async function testConnection(config) {
 
 /**
  * Ensures a bot-owned local clone exists and is hard-reset to the latest state of
- * `astro_branch` (creating that branch off origin/main if it doesn't exist yet).
+ * `astro_branch` (creating that branch off the sync branch if it doesn't exist yet).
  * This clone is app-managed state (app/data/repos/*) — never point it at a human's
  * own working checkout.
  */
@@ -125,6 +125,11 @@ async function ensureRepoReady(config, log) {
   const repoUrl = (config.astro_repo_url || '').trim();
   const branch = (config.astro_branch || DEFAULT_BRANCH).trim();
   const token = (config.astro_git_token || '').trim();
+  // The branch we sync FROM (base for new branches, and merged in before every job) is
+  // independent of the branch we publish TO — configurable via BLOG_DEVLYN_ASTRO_SYNC_BRANCH
+  // so switching astro_branch later (e.g. to "main") doesn't require a code change, and so
+  // the two can never silently be forced to the same hardcoded value.
+  const syncBranch = (config.astro_sync_branch || 'main').trim();
 
   if (!repoUrl) throw new Error('Astro repo URL is not configured for this blog.');
   if (!token) throw new Error('Astro git token is not configured for this blog.');
@@ -147,16 +152,44 @@ async function ensureRepoReady(config, log) {
 
   const { stdout: remoteBranch } = await git(repoPath, ['ls-remote', '--heads', url, branch]);
   const branchExistsRemotely = !!remoteBranch.trim();
-  const baseRef = branchExistsRemotely ? `origin/${branch}` : 'origin/main';
+  const baseRef = branchExistsRemotely ? `origin/${branch}` : `origin/${syncBranch}`;
 
   if (!branchExistsRemotely) {
-    log(`Branch "${branch}" doesn't exist on origin yet — creating it off origin/main.`);
+    log(`Branch "${branch}" doesn't exist on origin yet — creating it off origin/${syncBranch}.`);
   }
 
   await git(repoPath, ['checkout', '-B', branch, baseRef]);
   await git(repoPath, ['reset', '--hard', baseRef]);
   await git(repoPath, ['clean', '-fd']);
 
+  // Keep the automation branch from drifting behind the sync branch: merge (not rebase —
+  // this branch may already be pushed, and rebasing would force-push/rewrite it) before any
+  // new content is staged/committed. Skipped when branch === syncBranch (e.g. astro_branch
+  // is itself set to "main") — merging a branch into itself is a meaningless no-op and would
+  // just print a confusing log line. Also skipped when the branch was just created off the
+  // sync branch above (nothing to merge yet). Runs on every ensureRepoReady() call, i.e.
+  // before generation (prepareForReview) AND again right before commit (commitStaged), so
+  // the sync branch's latest state rides along automatically with the next push either way.
+  if (branchExistsRemotely && branch !== syncBranch) {
+    const { stdout: syncRemote } = await git(repoPath, ['ls-remote', '--heads', url, syncBranch]);
+    if (!syncRemote.trim()) {
+      log(`Sync branch "${syncBranch}" not found on origin — skipping sync.`);
+    } else {
+      log(`Syncing "${branch}" with origin/${syncBranch} before continuing...`);
+      try {
+        await git(repoPath, ['merge', `origin/${syncBranch}`, '--no-edit']);
+      } catch (err) {
+        await git(repoPath, ['merge', '--abort']).catch(() => {});
+        throw new Error(
+          `Automatic sync with origin/${syncBranch} failed — a merge conflict occurred on "${branch}". ` +
+          `A human needs to resolve this manually in the managed clone (${repoPath}) or on GitHub ` +
+          `before this job can continue. Original error: ${(err.stderr || err.message || '').trim()}`
+        );
+      }
+    }
+  }
+
+  log(`Repo ready on branch "${branch}", synced with origin.`);
   return { repoPath, branch, branchExistsRemotely };
 }
 
@@ -244,7 +277,9 @@ function resolveCategory(rawCat, contentDirAbs, log) {
   const existing = scanExistingCategories(contentDirAbs);
 
   if (existing.has(normCandidate)) {
-    return { category: existing.get(normCandidate), matched: true };
+    const matchedCat = existing.get(normCandidate);
+    log(`Category resolved: "${matchedCat}" (exact match).`);
+    return { category: matchedCat, matched: true };
   }
 
   let best = null, bestDist = Infinity;
@@ -536,6 +571,7 @@ async function commitStaged(jobId, blogConfig, logFn) {
   const coverStagedPath = path.join(stageDir, 'cover.png');
   if (coverBasename && fs.existsSync(coverStagedPath)) {
     fs.copyFileSync(coverStagedPath, path.join(coversDirAbs, coverBasename));
+    log(`Restored staged cover image: ${path.join(coversDir, coverBasename)}`);
   }
 
   // Safety net: re-validate against the CURRENT branch state — it may have moved since
@@ -544,6 +580,7 @@ async function commitStaged(jobId, blogConfig, logFn) {
   await commitAndPush(repoPath, branch, slug, title, blogConfig, log);
 
   cleanupStaging(jobId);
+  log('Staging folder cleaned up — the reviewed draft is now committed and pushed.');
 
   const domain = (blogConfig.domain || 'devlyn.ai').replace(/\/+$/, '');
   const repoWebUrl = (blogConfig.astro_repo_url || '').replace(/\.git$/, '');

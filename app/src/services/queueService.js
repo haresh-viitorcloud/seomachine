@@ -405,7 +405,10 @@ function retryPostJob(id) {
   if (!job.generated_content) {
     throw new Error('No generated content found. Use Restart to regenerate from scratch.');
   }
-  astroGitService.cleanupStaging(id); // drop any partial/stale review staging before retrying
+  if (astroGitService.getStagingInfo(id).exists) {
+    astroGitService.cleanupStaging(id); // drop any partial/stale review staging before retrying
+    addLog(id, 'warning', 'Discarded a staged (uncommitted) review draft before retrying.');
+  }
   db.prepare(`
     UPDATE jobs SET
       status = 'pending',
@@ -428,7 +431,10 @@ function regenerateContentJob(id) {
   if (['generating', 'posting'].includes(job.status)) {
     throw new Error('Cannot regenerate a job that is currently running.');
   }
-  astroGitService.cleanupStaging(id); // regenerating produces new content — discard the old staged review
+  if (astroGitService.getStagingInfo(id).exists) {
+    astroGitService.cleanupStaging(id); // regenerating produces new content — discard the old staged review
+    addLog(id, 'warning', 'Discarded the previously staged (uncommitted) review draft — regenerating from scratch.');
+  }
   db.prepare(`
     UPDATE jobs SET
       status = 'pending',
