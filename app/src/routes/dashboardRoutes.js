@@ -142,6 +142,8 @@ router.put('/api/jobs/:id/review-content', requireAuth, async (req, res) => {
       if (fields.content !== undefined) fields.content = marked(fields.content);
     }
     const job = queueService.updateReviewContent(req.params.id, fields);
+    const editedFields = Object.keys(req.body || {}).join(', ') || 'none';
+    queueService.addLog(req.params.id, 'info', `Reviewed draft edited by admin — fields changed: ${editedFields}.`);
     res.json({ ok: true, job });
   } catch (err) {
     res.status(400).json({ error: err.message });

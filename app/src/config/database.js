@@ -139,6 +139,7 @@ function initializeDatabase() {
     "ALTER TABLE blog_configs ADD COLUMN astro_repo_url TEXT DEFAULT ''",
     "ALTER TABLE blog_configs ADD COLUMN astro_repo_path TEXT DEFAULT ''",
     "ALTER TABLE blog_configs ADD COLUMN astro_branch TEXT DEFAULT 'feature/blog-automation'",
+    "ALTER TABLE blog_configs ADD COLUMN astro_sync_branch TEXT DEFAULT 'main'",
     "ALTER TABLE blog_configs ADD COLUMN astro_content_dir TEXT DEFAULT 'src/content/blog'",
     "ALTER TABLE blog_configs ADD COLUMN astro_covers_dir TEXT DEFAULT 'src/assets/blog-covers'",
     "ALTER TABLE blog_configs ADD COLUMN astro_git_token TEXT DEFAULT ''",

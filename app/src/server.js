@@ -157,7 +157,7 @@ function seedBlogConfigsFromEnv() {
 
   for (const SLUG of slugs) {
     const slug = SLUG.toLowerCase();
-    const existing = db.prepare('SELECT id, wp_category, wp_author_id, statamic_cp_username, statamic_api_token, statamic_blueprint, statamic_site, statamic_category, astro_repo_path, astro_branch, astro_content_dir, astro_covers_dir, astro_git_token, astro_git_author_name, astro_git_author_email FROM blog_configs WHERE slug = ?').get(slug);
+    const existing = db.prepare('SELECT id, wp_category, wp_author_id, statamic_cp_username, statamic_api_token, statamic_blueprint, statamic_site, statamic_category, astro_repo_path, astro_branch, astro_sync_branch, astro_content_dir, astro_covers_dir, astro_git_token, astro_git_author_name, astro_git_author_email FROM blog_configs WHERE slug = ?').get(slug);
     // Category/author are editable in the Settings UI. Env only overrides them when
     // explicitly set — an empty/missing env var keeps the UI-edited DB value instead
     // of resetting to '1' on every restart.
@@ -196,6 +196,7 @@ function seedBlogConfigsFromEnv() {
       process.env[`BLOG_${SLUG}_ASTRO_REPO_URL`] || '',
       process.env[`BLOG_${SLUG}_ASTRO_REPO_PATH`] || existing?.astro_repo_path || `./data/repos/${slug}`,
       process.env[`BLOG_${SLUG}_ASTRO_BRANCH`] || existing?.astro_branch || 'feature/blog-automation',
+      process.env[`BLOG_${SLUG}_ASTRO_SYNC_BRANCH`] || existing?.astro_sync_branch || 'main',
       process.env[`BLOG_${SLUG}_ASTRO_CONTENT_DIR`] || existing?.astro_content_dir || 'src/content/blog',
       process.env[`BLOG_${SLUG}_ASTRO_COVERS_DIR`] || existing?.astro_covers_dir || 'src/assets/blog-covers',
       envAstroToken || existing?.astro_git_token || '',
@@ -209,9 +210,9 @@ function seedBlogConfigsFromEnv() {
           wp_method, wp_app_password, wp_category, wp_author_id, context_path, rules_path,
           publishing_platform, statamic_url, statamic_api_token, statamic_collection, statamic_cp_username,
           statamic_blueprint, statamic_site, statamic_category,
-          astro_repo_url, astro_repo_path, astro_branch, astro_content_dir, astro_covers_dir,
+          astro_repo_url, astro_repo_path, astro_branch, astro_sync_branch, astro_content_dir, astro_covers_dir,
           astro_git_token, astro_git_author_name, astro_git_author_email
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(slug, ...vals);
       console.log(`[Setup] Blog config created from .env: ${slug} (${platform})`);
     } else {
@@ -222,7 +223,7 @@ function seedBlogConfigsFromEnv() {
           wp_author_id=?, context_path=?, rules_path=?,
           publishing_platform=?, statamic_url=?, statamic_api_token=?, statamic_collection=?, statamic_cp_username=?,
           statamic_blueprint=?, statamic_site=?, statamic_category=?,
-          astro_repo_url=?, astro_repo_path=?, astro_branch=?, astro_content_dir=?, astro_covers_dir=?,
+          astro_repo_url=?, astro_repo_path=?, astro_branch=?, astro_sync_branch=?, astro_content_dir=?, astro_covers_dir=?,
           astro_git_token=?, astro_git_author_name=?, astro_git_author_email=?,
           updated_at=datetime('now')
         WHERE slug=?
