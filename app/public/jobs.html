@@ -111,6 +111,42 @@
 
     /* ── Action buttons ── */
     .action-group { display: flex; gap: 5px; flex-wrap: wrap; }
+    /* Collapse to icon-only by default; hover/focus reveals the label so a crowded
+       actions column (5-6+ buttons per row) stays scannable at a glance. */
+    .action-group .btn { overflow: hidden; white-space: nowrap; transition: padding .15s ease; }
+    .action-group .btn .lbl {
+      display: inline-block; max-width: 0; opacity: 0; overflow: hidden;
+      white-space: nowrap; vertical-align: middle;
+      transition: max-width .18s ease, opacity .12s ease, margin-left .18s ease;
+    }
+    .action-group .btn:hover .lbl, .action-group .btn:focus-visible .lbl {
+      max-width: 130px; opacity: 1; margin-left: 5px;
+    }
+
+    /* ── Repurpose in-progress indicator (shown in the Status cell) ── */
+    /* One line per site (see repurposeStatusHtml) — nowrap lives on each item, not the
+       container, so multiple sites stack vertically instead of widening the column. */
+    .rp-progress { font-size: 11px; color: var(--primary); font-weight: 500; margin-top: 3px; }
+    .rp-progress-item { white-space: nowrap; }
+
+    /* ── Repurpose modal — one row per target site ── */
+    .rp-row { display: flex; gap: 8px; align-items: center; }
+    .rp-row .rp-count { max-width: 90px; }
+    .rp-row .rp-remove { flex-shrink: 0; }
+
+    /* ── Searchable site combo (Repurpose modal) ── */
+    .rp-site-combo { position: relative; flex: 2; }
+    .rp-site-options {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 40;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+      max-height: 220px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    }
+    .rp-site-option { padding: 7px 12px; font-size: 13px; cursor: pointer; color: var(--text); }
+    .rp-site-option:hover, .rp-site-option.active { background: rgba(99,102,241,.12); }
+    .rp-site-option .rp-opt-accts { color: var(--text-muted); font-size: 11px; margin-left: 6px; }
+    .rp-site-option-disabled { cursor: not-allowed; opacity: .45; }
+    .rp-site-option-disabled:hover { background: none; }
+    .rp-site-option-empty { padding: 8px 12px; font-size: 12px; color: var(--text-muted); }
 
     /* ── Progress bar on active rows ── */
     .progress-mini { height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; margin-top: 4px; }
@@ -352,6 +388,60 @@
   </div>
 </div>
 
+<!-- Repurpose Modal — bulk multi-platform content repurposing -->
+<div id="repurposeModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:560px">
+    <button class="modal-close" onclick="closeRepurpose()">✕</button>
+    <h2 style="font-size:16px;margin-bottom:6px">♻️ Repurpose Article</h2>
+    <p class="text-muted text-small" style="margin-bottom:16px">
+      Generate unique, platform-specific variations of this article for scheduled publishing.
+    </p>
+    <input type="hidden" id="rpJobId">
+
+    <div class="form-group">
+      <label class="form-label">Category</label>
+      <select id="rpCategory" class="form-control" onchange="onRpCategoryChange()" style="max-width:240px">
+        <option value="">All categories</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Sites</label>
+      <div id="rpSiteRows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="addRepurposeRow()">+ Add Site</button>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Publish</label>
+      <select id="rpMode" class="form-control" onchange="onRpModeChange()" style="max-width:200px">
+        <option value="now">Now</option>
+        <option value="scheduled">Scheduled</option>
+      </select>
+      <div id="rpDateTimeWrap" class="hidden" style="margin-top:8px">
+        <label class="form-label" style="font-size:11px">Date &amp; Time</label>
+        <input type="datetime-local" id="rpDateTime" class="form-control" style="max-width:240px">
+      </div>
+      <div class="form-hint">Each file's frontmatter carries this publish date — publishing itself is still a manual step for now.</div>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+      <button class="btn btn-secondary" onclick="closeRepurpose()">Cancel</button>
+      <button class="btn btn-primary" id="rpSubmitBtn" onclick="submitRepurpose()">Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- Repurpose History Modal — past variations generated for this article, read live
+     from each platform's manifest file (no DB) -->
+<div id="repurposeHistoryModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:720px">
+    <button class="modal-close" onclick="closeRepurposeHistory()">✕</button>
+    <h2 style="font-size:16px;margin-bottom:6px">📜 Repurpose History</h2>
+    <p class="text-muted text-small" style="margin-bottom:16px">Previously generated platform-specific variations for this article.</p>
+    <div id="rpHistList" style="display:flex;flex-direction:column;gap:8px;max-height:65vh;overflow-y:auto"></div>
+  </div>
+</div>
+
 <script src="/assets/js/common.js"></script>
 <script src="/socket.io/socket.io.js"></script>
 <script>
@@ -367,6 +457,19 @@ let allBlogs = [];
 // Batch-group pagination — render at most N upload groups, then "Show more"
 const GROUPS_PAGE = 8;
 let groupsShown = GROUPS_PAGE;
+
+// Repurpose modal state — available platforms (re-fetched whenever the Category filter
+// changes) + brand categories (fetched once) + a running row counter so each "+ Add
+// Site" row gets a stable id to remove itself by.
+let repurposePlatforms = [];
+let repurposeCategories = [];
+let rpRowSeq = 0;
+
+// Live repurpose-batch progress, keyed by job id: { platforms: { [site]: {index, total} } }.
+// Populated optimistically on submit, then kept current by 'repurpose:progress' /
+// 'repurpose:done' socket events — this is what drives the in-row progress indicator
+// (repurposing has no job.status of its own to show it, unlike generate/post).
+let repurposeProgress = {};
 
 // Debounced reload — sockets fire many job:updated events during generation;
 // collapsing them into one reload every 500ms keeps the table stable.
@@ -390,6 +493,17 @@ function onSearch(v) {
   document.getElementById('avatarInitial').textContent = me.username[0].toUpperCase();
   const cfg = await API.get('/api/configs');
   allBlogs = cfg?.configs || [];
+  const rp = await API.get('/api/repurpose/platforms');
+  repurposePlatforms = rp?.platforms || [];
+  // API.get() never throws on a non-2xx — surface a failed sites fetch loudly instead
+  // of silently leaving repurposePlatforms empty (the Repurpose modal would otherwise
+  // show "No matching sites" for every query with no clue why).
+  if (rp?.error) showToast(`Repurpose sites unavailable: ${rp.error}`, 'warning');
+  const rc = await API.get('/api/repurpose/categories');
+  repurposeCategories = rc?.categories || [];
+  if (rc?.error) showToast(`Repurpose categories unavailable: ${rc.error}`, 'warning');
+  populateRpCategorySelect();
+  await loadActiveRepurposes();
   await load();
 })();
 
@@ -604,6 +718,22 @@ function qualityChip(score) {
     title="SEO Machine content-quality score: ${s}/100 (humanity, specificity, structure, SEO, readability)">Q ${s}</span>`;
 }
 
+// Live "N/total" indicator + indeterminate progress bar for an in-flight repurpose
+// batch on this job (mirrors the elapsed-timer/progress-mini treatment used for
+// generating/posting jobs, since repurposing has no job.status of its own to show it).
+// One line per site (not comma-joined on one line) — with several sites running at
+// once, a single nowrap line forces the Status column wide and crowds the Action
+// column's buttons; stacking vertically keeps each line's width to just that site's text.
+function repurposeStatusHtml(jobId) {
+  const state = repurposeProgress[jobId];
+  const entries = state ? Object.entries(state.platforms) : [];
+  if (!entries.length) return '';
+  const lines = entries.map(([site, s]) =>
+    `<div class="rp-progress-item">♻️ ${escHtml(s.label || site)} ${Math.min(s.index, s.total)}/${s.total}</div>`
+  ).join('');
+  return `<div class="rp-progress" title="Repurpose batch in progress">${lines}</div><div class="progress-mini"><div class="progress-mini-fill"></div></div>`;
+}
+
 function renderJobRow(j, blogName, blogPlatform) {
   const isActive = ['generating','posting'].includes(j.status);
   const displayTitle = j.generated_title || j.title || '—';
@@ -667,7 +797,7 @@ function renderJobRow(j, blogName, blogPlatform) {
       </td>
       <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-muted)">${escHtml(j.primary_keyword || '—')}</td>
       <td style="font-size:12px;white-space:nowrap;color:var(--text-muted)">${fmtDateShort(j.scheduled_at)}</td>
-      <td>${statusBadge}${elapsedHtml}</td>
+      <td>${statusBadge}${elapsedHtml}${repurposeStatusHtml(j.id)}</td>
       <td style="font-size:11px;color:var(--text-muted);white-space:nowrap">${j.cost_usd > 0 ? '$'+j.cost_usd.toFixed(4) : '—'}</td>
       <td style="max-width:130px;overflow:hidden">${wpLink}</td>
       <td onclick="event.stopPropagation()"><div class="action-group">${actions}</div></td>
@@ -681,46 +811,60 @@ function renderJobRow(j, blogName, blogPlatform) {
     </tr>`;
 }
 
+// Icon-only action button that reveals its label on hover/focus (see .action-group .btn
+// .lbl in <style>). `title` is the native tooltip (can be longer/more specific than the
+// visible label) and defaults to the label itself.
+function actionBtn({ cls = '', icon, label, title, onclick, style = '' }) {
+  return `<button class="btn ${cls} btn-sm" style="font-size:11px${style ? ';' + style : ''}" onclick="${onclick}" title="${escHtml(title || label)}">${icon}<span class="lbl">${escHtml(label)}</span></button>`;
+}
+
 function buildActions(j) {
   const id = j.id;
   const active = ['generating','posting'].includes(j.status);
-  const s = 'style="font-size:11px"';
   const btns = [];
 
   // ── Start ──
   if (!active) {
     if (j.status === 'paused')
-      btns.push(`<button class="btn btn-primary btn-sm" ${s} onclick="jobAction('${id}','resume')" title="Resume">▶ Start</button>`);
+      btns.push(actionBtn({ cls: 'btn-primary', icon: '▶', label: 'Start', title: 'Resume', onclick: `jobAction('${id}','resume')` }));
     else if (['pending','error','skipped'].includes(j.status))
-      btns.push(`<button class="btn btn-primary btn-sm" ${s} onclick="jobAction('${id}','process-now')" title="Run now">▶ Start</button>`);
+      btns.push(actionBtn({ cls: 'btn-primary', icon: '▶', label: 'Start', title: 'Run now', onclick: `jobAction('${id}','process-now')` }));
   }
 
   // ── Pause (pending only) ──
   if (j.status === 'pending')
-    btns.push(`<button class="btn btn-secondary btn-sm" ${s} onclick="jobAction('${id}','pause')" title="Pause">⏸</button>`);
+    btns.push(actionBtn({ cls: 'btn-secondary', icon: '⏸', label: 'Pause', onclick: `jobAction('${id}','pause')` }));
 
   // ── Edit (pending / paused / error) ──
   if (!active && ['pending','paused','error'].includes(j.status))
-    btns.push(`<button class="btn btn-secondary btn-sm" ${s} onclick="jobEdit('${id}')" title="Edit title, keyword or add instructions">✏️</button>`);
+    btns.push(actionBtn({ cls: 'btn-secondary', icon: '✏️', label: 'Edit', title: 'Edit title, keyword or add instructions', onclick: `jobEdit('${id}')` }));
 
   // ── Preview content + cover image (also where the Commit button lives, for astro-git review-gate jobs) ──
   if (j.has_content)
-    btns.push(`<button class="btn btn-secondary btn-sm" ${s} onclick="showPreview('${id}')" title="View generated content and cover image">👁</button>`);
+    btns.push(actionBtn({ cls: 'btn-secondary', icon: '👁', label: 'Preview', title: 'View generated content and cover image', onclick: `showPreview('${id}')` }));
 
   // ── Smart retry based on state ──
   if (!active) {
     if (j.status === 'error' && j.has_content)
-      btns.push(`<button class="btn btn-info btn-sm" ${s} onclick="jobRetryPost('${id}')" title="Content ready — retry WP posting only">📤 Retry Post</button>`);
+      btns.push(actionBtn({ cls: 'btn-info', icon: '📤', label: 'Retry Post', title: 'Content ready — retry WP posting only', onclick: `jobRetryPost('${id}')` }));
     if (j.status === 'drafted') {
-      btns.push(`<button class="btn btn-sm" style="font-size:11px;background:rgba(34,211,238,.14);color:#67e8f9;border:1px solid rgba(34,211,238,.35)" onclick="openFeedback('${id}')" title="Leave feedback — the AI applies it to future posts for this blog">💬 Feedback</button>`);
-      btns.push(`<button class="btn btn-secondary btn-sm" ${s} onclick="jobRegenerate('${id}')" title="Keep WP post, regenerate content">↺ Regen</button>`);
+      btns.push(actionBtn({
+        icon: '💬', label: 'Feedback', title: 'Leave feedback — the AI applies it to future posts for this blog',
+        onclick: `openFeedback('${id}')`,
+        style: 'background:rgba(34,211,238,.14);color:#67e8f9;border:1px solid rgba(34,211,238,.35)',
+      }));
+      btns.push(actionBtn({ cls: 'btn-secondary', icon: '↺', label: 'Regen', title: 'Keep WP post, regenerate content', onclick: `jobRegenerate('${id}')` }));
+      btns.push(repurposeProgress[id]
+        ? actionBtn({ cls: 'btn-secondary', icon: '⏳', label: 'Repurposing', title: 'Repurpose batch in progress', onclick: 'void(0)', style: 'opacity:.6;cursor:default;pointer-events:none' })
+        : actionBtn({ cls: 'btn-secondary', icon: '♻️', label: 'Repurpose', title: 'Generate platform-specific versions of this article', onclick: `openRepurpose('${id}')` }));
+      btns.push(actionBtn({ cls: 'btn-secondary', icon: '📜', label: 'History', title: 'View past repurposed variations for this article', onclick: `openRepurposeHistory('${id}')` }));
     }
-    btns.push(`<button class="btn btn-warning btn-sm" ${s} onclick="jobRestart('${id}')" title="Clear everything and restart">↺ Restart</button>`);
+    btns.push(actionBtn({ cls: 'btn-warning', icon: '↺', label: 'Restart', title: 'Clear everything and restart', onclick: `jobRestart('${id}')` }));
   }
 
   // ── Delete ──
   if (!active)
-    btns.push(`<button class="btn btn-danger btn-sm" ${s} onclick="jobDelete('${id}')" title="Delete permanently">🗑</button>`);
+    btns.push(actionBtn({ cls: 'btn-danger', icon: '🗑', label: 'Delete', title: 'Delete permanently', onclick: `jobDelete('${id}')` }));
 
   return btns.join('');
 }
@@ -781,6 +925,279 @@ async function submitFeedback() {
 async function deleteFeedback(fbId, jobId) {
   const data = await API.delete(`/api/feedback/${fbId}`);
   if (data?.ok) { showToast('Feedback removed', 'success'); openFeedback(jobId); }
+}
+
+// ── Repurpose (bulk multi-platform content generation) ──
+
+// Reconstruct in-progress repurpose batches from the server on page load — a fresh
+// page load starts a brand-new socket connection with no event history, so without
+// this, navigating away and back would show no indicator even for a batch still
+// running server-side.
+async function loadActiveRepurposes() {
+  const data = await API.get('/api/repurpose/active');
+  const active = data?.active || {};
+  repurposeProgress = {};
+  for (const [jobId, state] of Object.entries(active)) {
+    repurposeProgress[jobId] = { platforms: {} };
+    for (const p of state.platforms || []) {
+      repurposeProgress[jobId].platforms[p.site] = { label: p.label, index: p.index, total: p.total };
+    }
+  }
+}
+
+// Count is auto-calculated from the selected site's connected-account count (see
+// repurposeService.listPlatforms' accountCount) — not user-editable. 0 accounts means
+// nothing to generate for that site; submitRepurpose() below excludes such rows.
+function accountCountFor(siteId) {
+  return repurposePlatforms.find((p) => p.id === siteId)?.accountCount ?? 0;
+}
+
+// Searchable site combo: a text input (filter-as-you-type over repurposePlatforms) +
+// a floating options panel, instead of a plain <select> — 48 sites is too many to
+// scan/scroll through natively. The chosen site's id lives in the input's
+// data-site-id attribute (read by submitRepurpose()); the visible text is just the label.
+function repurposeRowHtml(rowId) {
+  // Every new row starts with no site chosen — never pre-fill the first platform in
+  // the list, that just looks like an (unintended) selection the user didn't make.
+  return `
+    <div class="rp-row" data-row="${rowId}">
+      <div class="rp-site-combo">
+        <input type="text" class="form-control rp-site-search" autocomplete="off"
+               placeholder="Search site…" value="" data-site-id=""
+               oninput="onRpSiteSearch(this)" onfocus="onRpSiteSearch(this)"
+               onblur="onRpSiteBlur(this)" onkeydown="onRpSiteKeydown(event, this)">
+        <div class="rp-site-options hidden"></div>
+      </div>
+      <input type="number" class="form-control rp-count" min="0" max="50" value="0" readonly title="Number of connected accounts for this site (auto-calculated, not editable)">
+      <button type="button" class="btn btn-danger btn-sm rp-remove" onclick="removeRepurposeRow(${rowId})" title="Remove this site">✕</button>
+    </div>`;
+}
+
+// A site with 0 connected accounts has nothing to generate for — still listed (so it's
+// clear the site exists and why it's unavailable) but not selectable at all.
+function rpSiteOptionHtml(p) {
+  const disabled = p.accountCount === 0;
+  // onmousedown="preventDefault()" stays on EVERY option, disabled or not — it's what
+  // stops the input from blurring (and the panel auto-closing) on click. Only onclick
+  // (the actual selection) is omitted for disabled options.
+  const handlers = `onmousedown="event.preventDefault()"${disabled ? '' : ' onclick="selectRpSite(this)"'}`;
+  return `<div class="rp-site-option${disabled ? ' rp-site-option-disabled' : ''}" data-id="${escHtml(p.id)}" data-label="${escHtml(p.label)}"
+             ${handlers} title="${disabled ? 'No connected accounts — nothing to generate for this site' : ''}">
+            ${escHtml(p.label)}<span class="rp-opt-accts">${p.accountCount} account${p.accountCount === 1 ? '' : 's'}</span>
+          </div>`;
+}
+
+// Sites already chosen in OTHER rows are excluded here — same site twice across rows
+// would just duplicate one site's variations rather than reaching a new one. The
+// current row's own already-chosen site is never excluded from itself.
+function sitesChosenElsewhere(inputEl) {
+  const chosen = new Set();
+  document.querySelectorAll('.rp-site-search').forEach((el) => {
+    if (el !== inputEl && el.dataset.siteId) chosen.add(el.dataset.siteId);
+  });
+  return chosen;
+}
+
+function onRpSiteSearch(inputEl) {
+  const panel = inputEl.nextElementSibling;
+  if (!repurposePlatforms.length) {
+    panel.innerHTML = '<div class="rp-site-option-empty">No sites loaded — the sites service may be unreachable. Check the toast/console, or reload the page.</div>';
+    panel.classList.remove('hidden');
+    return;
+  }
+  const q = inputEl.value.trim().toLowerCase();
+  const chosenElsewhere = sitesChosenElsewhere(inputEl);
+  const matches = repurposePlatforms.filter((p) => !chosenElsewhere.has(p.id) && (!q || p.label.toLowerCase().includes(q)));
+  panel.innerHTML = matches.length
+    ? matches.map(rpSiteOptionHtml).join('')
+    : '<div class="rp-site-option-empty">No matching sites</div>';
+  panel.classList.remove('hidden');
+}
+
+// Clicking an option cancels the mousedown (see rpSiteOptionHtml) so the input never
+// actually blurs — this only fires for genuinely leaving the field (tab away, click
+// elsewhere). Reverts to the last confirmed selection so a half-typed search query
+// never silently becomes "no site selected".
+function onRpSiteBlur(inputEl) {
+  setTimeout(() => {
+    inputEl.nextElementSibling.classList.add('hidden');
+    const site = repurposePlatforms.find((p) => p.id === inputEl.dataset.siteId);
+    inputEl.value = site ? site.label : '';
+  }, 150);
+}
+
+function onRpSiteKeydown(e, inputEl) {
+  if (e.key === 'Escape') { inputEl.blur(); return; }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const firstOption = inputEl.nextElementSibling.querySelector('.rp-site-option:not(.rp-site-option-disabled)');
+    if (firstOption) selectRpSite(firstOption);
+  }
+}
+
+function selectRpSite(optionEl) {
+  const combo = optionEl.closest('.rp-site-combo');
+  const input = combo.querySelector('.rp-site-search');
+  input.value = optionEl.dataset.label;
+  input.dataset.siteId = optionEl.dataset.id;
+  combo.querySelector('.rp-site-options').classList.add('hidden');
+  combo.closest('.rp-row').querySelector('.rp-count').value = accountCountFor(optionEl.dataset.id);
+}
+
+function addRepurposeRow() {
+  rpRowSeq++;
+  document.getElementById('rpSiteRows').insertAdjacentHTML('beforeend', repurposeRowHtml(rpRowSeq));
+  updateRpRemoveButtons();
+}
+
+function populateRpCategorySelect() {
+  const sel = document.getElementById('rpCategory');
+  const options = repurposeCategories.map((c) => `<option value="${escHtml(c.slug)}">${escHtml(c.name)} (${c.accountCount})</option>`).join('');
+  sel.innerHTML = `<option value="">All categories</option>${options}`;
+}
+
+// Re-fetches Sites scoped to `category` (server does the per-account filtering — see
+// repurposeService.listPlatforms) and re-syncs every existing row's Count, not just
+// future selections, since a row's already-chosen site may have a different (or zero)
+// count once the category narrows which accounts are counted.
+async function refreshRpPlatforms(category) {
+  const rp = await API.get(`/api/repurpose/platforms${category ? `?category=${encodeURIComponent(category)}` : ''}`);
+  repurposePlatforms = rp?.platforms || [];
+  if (rp?.error) { showToast(`Repurpose sites unavailable: ${rp.error}`, 'warning'); return; }
+  document.querySelectorAll('.rp-row').forEach((row) => {
+    row.querySelector('.rp-count').value = accountCountFor(row.querySelector('.rp-site-search').dataset.siteId);
+  });
+}
+
+function onRpCategoryChange() {
+  refreshRpPlatforms(document.getElementById('rpCategory').value);
+}
+
+function removeRepurposeRow(rowId) {
+  document.querySelector(`.rp-row[data-row="${rowId}"]`)?.remove();
+  updateRpRemoveButtons();
+}
+
+// Hide the remove button on the last remaining row — always keep at least one site.
+function updateRpRemoveButtons() {
+  const rows = document.querySelectorAll('.rp-row');
+  rows.forEach(r => {
+    const btn = r.querySelector('.rp-remove');
+    if (btn) btn.style.visibility = rows.length > 1 ? 'visible' : 'hidden';
+  });
+}
+
+// Local (not UTC) "YYYY-MM-DDTHH:mm" default for the datetime-local input.
+function localDateTimeNowString() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function onRpModeChange() {
+  document.getElementById('rpDateTimeWrap').classList.toggle('hidden', document.getElementById('rpMode').value !== 'scheduled');
+}
+
+function openRepurpose(id) {
+  document.getElementById('rpJobId').value = id;
+  document.getElementById('rpMode').value = 'now';
+  document.getElementById('rpDateTime').value = localDateTimeNowString();
+  onRpModeChange();
+  // Category always starts unselected ("All categories") on open, regardless of what
+  // was left selected the last time the modal was used for a different job.
+  document.getElementById('rpCategory').value = '';
+  refreshRpPlatforms('');
+  document.getElementById('rpSiteRows').innerHTML = '';
+  rpRowSeq = 0;
+  addRepurposeRow();
+  document.getElementById('repurposeModal').classList.remove('hidden');
+}
+function closeRepurpose() { document.getElementById('repurposeModal').classList.add('hidden'); }
+
+async function submitRepurpose() {
+  const id = document.getElementById('rpJobId').value;
+  const category = document.getElementById('rpCategory').value;
+  if (!category) { showToast('Select a category before generating — "All categories" is just a preview, not a valid choice to generate with', 'warning'); return; }
+
+  // count uses `|| 0` (not `|| 1`) since 0 connected accounts is a real, valid value —
+  // sites with 0 are filtered out below rather than silently generating one anyway.
+  const platforms = [...document.querySelectorAll('.rp-row')]
+    .map(r => ({ site: r.querySelector('.rp-site-search').dataset.siteId || '', count: parseInt(r.querySelector('.rp-count').value, 10) || 0 }))
+    .filter(p => p.site && p.count > 0);
+  if (!platforms.length) { showToast('Selected site(s) have no connected accounts to generate for', 'warning'); return; }
+
+  const mode = document.getElementById('rpMode').value;
+  const datetime = document.getElementById('rpDateTime').value;
+  if (mode === 'scheduled' && !datetime) { showToast('Pick a date & time, or switch to Now', 'warning'); return; }
+
+  const btn = document.getElementById('rpSubmitBtn');
+  btn.disabled = true;
+  const data = await API.post(`/api/jobs/${id}/repurpose`, { platforms, mode, datetime, category });
+  btn.disabled = false;
+  if (data?.error) { showToast(data.error, 'warning'); return; }
+
+  // Optimistic progress state — the first real 'repurpose:progress' event (stage:
+  // 'starting') arrives moments later and overwrites this with the same shape.
+  const state = repurposeProgress[id] || (repurposeProgress[id] = { platforms: {} });
+  platforms.forEach(p => {
+    const label = repurposePlatforms.find((pl) => pl.id === p.site)?.label || p.site;
+    state.platforms[p.site] = { label, index: 0, total: p.count };
+  });
+
+  showToast(data?.message || 'Repurposing started', 'success');
+  closeRepurpose();
+  render();
+}
+
+// ── Repurpose History (past variations, read live from the manifest files) ──
+async function openRepurposeHistory(id) {
+  document.getElementById('repurposeHistoryModal').classList.remove('hidden');
+  const list = document.getElementById('rpHistList');
+  list.innerHTML = '<div class="log-empty">Loading…</div>';
+  const data = await API.get(`/api/jobs/${id}/repurpose-history`);
+  const history = data?.history || [];
+  if (!history.length) {
+    list.innerHTML = '<div class="log-empty">No repurposed content generated yet for this article.</div>';
+    return;
+  }
+  list.innerHTML = history.map((h) => repurposeHistoryRowHtml(id, h)).join('');
+}
+function closeRepurposeHistory() { document.getElementById('repurposeHistoryModal').classList.add('hidden'); }
+
+function repurposeHistoryRowHtml(jobId, h) {
+  const scoreChip = qualityChip(h.quality_score);
+  const dt = h.scheduled_publish_date ? fmtDateShort(h.scheduled_publish_date) : '—';
+  const variationLabel = h.variation_count > 1 ? ` · ${h.variation_index}/${h.variation_count}` : '';
+  return `
+    <div class="rp-hist-row" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="badge badge-drafted" style="text-transform:none">${escHtml(h.platformLabel || h.platform)}</span>
+        <span style="font-weight:500;flex:1;min-width:160px">${escHtml(h.title || '(untitled)')}</span>
+        ${scoreChip}
+        <span class="text-small text-muted" style="white-space:nowrap">📅 ${dt}${variationLabel}</span>
+        <button class="btn btn-secondary btn-sm" onclick="toggleHistoryPreview(this,'${jobId}','${h.platform}','${h.file}')">👁 Preview</button>
+      </div>
+      <div class="rp-hist-preview hidden"></div>
+    </div>`;
+}
+
+async function toggleHistoryPreview(btn, jobId, platform, file) {
+  const row = btn.closest('.rp-hist-row');
+  const box = row.querySelector('.rp-hist-preview');
+  if (!box.classList.contains('hidden')) {
+    box.classList.add('hidden');
+    btn.innerHTML = '👁 Preview';
+    return;
+  }
+  box.classList.remove('hidden');
+  box.innerHTML = '<div class="log-empty">Loading…</div>';
+  btn.innerHTML = '🙈 Hide';
+  const data = await API.get(`/api/jobs/${jobId}/repurpose-history/file?platform=${encodeURIComponent(platform)}&file=${encodeURIComponent(file)}`);
+  if (data?.error) {
+    box.innerHTML = `<div class="log-empty">${escHtml(data.error)}</div>`;
+    return;
+  }
+  box.innerHTML = `<pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.6;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px;max-height:320px;overflow:auto">${escHtml(data.content || '')}</pre>`;
 }
 
 // Fetch + render logs into an (already-open) inline panel — used by render() to
@@ -1110,6 +1527,26 @@ socket.on('log:new', (log) => {
   if (!log.job_id) return;
   const logRow = document.getElementById('logs-' + log.job_id);
   if (logRow?.classList.contains('open')) refreshInlineLogs(log.job_id);
+});
+socket.on('repurpose:progress', (p) => {
+  if (!p || !p.jobId) return;
+  const state = repurposeProgress[p.jobId] || (repurposeProgress[p.jobId] = { platforms: {} });
+  state.platforms[p.site] = { label: p.label, index: p.index, total: p.total };
+  render();
+  // Surface into the inline log panel if it's open for this job (addLog already emits
+  // 'log:new' for each step, but that handler only refreshes — this covers the case
+  // where the panel is opened AFTER the batch already started).
+  const logRow = document.getElementById('logs-' + p.jobId);
+  if (logRow?.classList.contains('open')) refreshInlineLogs(p.jobId);
+});
+socket.on('repurpose:done', (d) => {
+  if (!d) return;
+  if (d.jobId) delete repurposeProgress[d.jobId];
+  if (d.error) { showToast(`Repurpose failed: ${d.error}`, 'warning'); render(); return; }
+  const generated = (d.summary || []).reduce((a, s) => a + (s.generated || 0), 0);
+  const requested = (d.summary || []).reduce((a, s) => a + (s.requested || 0), 0);
+  showToast(`✅ Repurposed ${generated}/${requested} variation${requested !== 1 ? 's' : ''}`, generated < requested ? 'warning' : 'success');
+  render();
 });
 
 // ── Helpers ──

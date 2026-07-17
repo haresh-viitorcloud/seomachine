@@ -37,6 +37,17 @@
     .row-meta  { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
     .row-meta span { font-size: 11px; color: var(--text-muted); }
     .row-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    /* Collapse to icon-only by default; hover/focus reveals the label — same treatment
+       as the All Jobs page's action column, so a crowded row stays scannable at a glance. */
+    .row-actions .btn { overflow: hidden; white-space: nowrap; transition: padding .15s ease; }
+    .row-actions .btn .lbl {
+      display: inline-block; max-width: 0; opacity: 0; overflow: hidden;
+      white-space: nowrap; vertical-align: middle;
+      transition: max-width .18s ease, opacity .12s ease, margin-left .18s ease;
+    }
+    .row-actions .btn:hover .lbl, .row-actions .btn:focus-visible .lbl {
+      max-width: 130px; opacity: 1; margin-left: 5px;
+    }
 
     /* Progress bar for active jobs */
     .progress-bar-wrap {
@@ -427,6 +438,12 @@ let testMode = false;
 const BLOG_FILTER_KEY = 'ct-blog-filter';
 let activeBlogFilter = localStorage.getItem(BLOG_FILTER_KEY) || '';
 
+// Live repurpose-batch progress, keyed by job id: { platforms: { [site]: {label, index, total} } }.
+// Reconstructed from the server on load (see loadActiveRepurposes) since a fresh page
+// load has no history of past socket events — this is how the indicator survives
+// navigating away to /jobs and back, not just staying on one page.
+let repurposeProgress = {};
+
 function blogParam() { return activeBlogFilter ? `&blog=${encodeURIComponent(activeBlogFilter)}` : ''; }
 
 async function loadBlogFilterOptions() {
@@ -486,8 +503,33 @@ function updateResetVisibility() {
   document.getElementById('sidebarUsername').textContent = me.username;
   document.getElementById('avatarInitial').textContent = me.username[0].toUpperCase();
   await loadBlogFilterOptions();
+  await loadActiveRepurposes();
   await Promise.all([loadDashboard(), loadLogs(), loadAnalytics()]);
 })();
+
+// Reconstruct in-progress repurpose batches from the server on load — see the
+// repurposeProgress declaration above for why this is needed (no per-page history).
+async function loadActiveRepurposes() {
+  const data = await API.get('/api/repurpose/active');
+  const active = data?.active || {};
+  repurposeProgress = {};
+  for (const [jobId, state] of Object.entries(active)) {
+    repurposeProgress[jobId] = { platforms: {} };
+    for (const p of state.platforms || []) {
+      repurposeProgress[jobId].platforms[p.site] = { label: p.label, index: p.index, total: p.total };
+    }
+  }
+}
+
+// Compact inline status for the row-meta line — no progress bar here (unlike the Jobs
+// page), this widget is denser and there's no Repurpose button on this page to pair it with.
+function repurposeStatusHtml(jobId) {
+  const state = repurposeProgress[jobId];
+  const entries = state ? Object.entries(state.platforms) : [];
+  if (!entries.length) return '';
+  const label = entries.map(([site, s]) => `${s.label || site} ${Math.min(s.index, s.total)}/${s.total}`).join(', ');
+  return `<span style="color:var(--primary);font-weight:500">♻️ Repurposing: ${escHtml(label)}</span>`;
+}
 
 // ── Analytics ──
 let analyticsPeriod = 'daily';
@@ -680,6 +722,7 @@ function renderJobRow(j) {
             <span>📅 ${scheduledDate}</span>
             ${keyword}
             ${elapsedHtml}
+            ${repurposeStatusHtml(j.id)}
             ${j.wp_post_id ? `<span>📝 WP #${j.wp_post_id}</span>` : ''}
             ${j.additional_instructions ? `<span style="color:var(--warning)" title="${escHtml(j.additional_instructions)}">📋 Custom instructions</span>` : ''}
             ${j.retry_count > 0 ? `<span>↺ Retry ${j.retry_count}</span>` : ''}
@@ -692,29 +735,36 @@ function renderJobRow(j) {
     </div>`;
 }
 
+// Icon-only action button that reveals its label on hover/focus (see .row-actions .btn
+// .lbl in <style>). `title` is the native tooltip (can be longer/more specific than the
+// visible label) and defaults to the label itself.
+function actionBtn({ cls = '', icon, label, title, onclick }) {
+  return `<button class="btn ${cls} btn-sm" onclick="${onclick}" title="${escHtml(title || label)}">${icon}<span class="lbl">${escHtml(label)}</span></button>`;
+}
+
 function rowActions(j) {
   const id = j.id;
   const active = ['generating','posting'].includes(j.status);
   const btns = [];
 
   // ── View / Edit ──
-  btns.push(`<button class="btn btn-secondary btn-sm" onclick="showTimeline('${id}')" title="View timeline logs">📋</button>`);
+  btns.push(actionBtn({ cls: 'btn-secondary', icon: '📋', label: 'Logs', title: 'View timeline logs', onclick: `showTimeline('${id}')` }));
   if (!active && ['pending','error','paused'].includes(j.status))
-    btns.push(`<button class="btn btn-secondary btn-sm" onclick="editJob('${id}')" title="Edit title / keyword">✏️</button>`);
+    btns.push(actionBtn({ cls: 'btn-secondary', icon: '✏️', label: 'Edit', title: 'Edit title / keyword', onclick: `editJob('${id}')` }));
   if (j.has_content)
-    btns.push(`<button class="btn btn-secondary btn-sm" onclick="showPreview('${id}')">👁</button>`);
+    btns.push(actionBtn({ cls: 'btn-secondary', icon: '👁', label: 'Preview', onclick: `showPreview('${id}')` }));
   if (j.wp_post_url && safeUrl(j.wp_post_url))
-    btns.push(`<a href="${safeUrl(j.wp_post_url)}" target="_blank" rel="noopener" class="btn btn-success btn-sm" title="Open WP draft" aria-label="Open WP draft"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>`);
+    btns.push(`<a href="${safeUrl(j.wp_post_url)}" target="_blank" rel="noopener" class="btn btn-success btn-sm" title="Open WP draft" aria-label="Open WP draft"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg><span class="lbl">View Draft</span></a>`);
 
   // ── Start / Pause ──
   if (!active) {
     if (j.status === 'paused') {
-      btns.push(`<button class="btn btn-primary btn-sm" onclick="processJobNow('${id}')" title="Start now">▶ Start</button>`);
+      btns.push(actionBtn({ cls: 'btn-primary', icon: '▶', label: 'Start', title: 'Start now', onclick: `processJobNow('${id}')` }));
     } else if (j.status === 'pending') {
-      btns.push(`<button class="btn btn-primary btn-sm" onclick="processJobNow('${id}')" title="Run now">▶ Start</button>`);
-      btns.push(`<button class="btn btn-secondary btn-sm" onclick="pauseJob('${id}')" title="Pause">⏸</button>`);
+      btns.push(actionBtn({ cls: 'btn-primary', icon: '▶', label: 'Start', title: 'Run now', onclick: `processJobNow('${id}')` }));
+      btns.push(actionBtn({ cls: 'btn-secondary', icon: '⏸', label: 'Pause', onclick: `pauseJob('${id}')` }));
     } else if (['error','skipped'].includes(j.status)) {
-      btns.push(`<button class="btn btn-primary btn-sm" onclick="processJobNow('${id}')" title="Run now">▶ Start</button>`);
+      btns.push(actionBtn({ cls: 'btn-primary', icon: '▶', label: 'Start', title: 'Run now', onclick: `processJobNow('${id}')` }));
     }
   }
 
@@ -722,19 +772,19 @@ function rowActions(j) {
   if (!active) {
     // Error with content → offer retry post (skip regeneration)
     if (j.status === 'error' && j.has_content) {
-      btns.push(`<button class="btn btn-info btn-sm" onclick="retryPostJob('${id}')" title="Content already generated — retry WordPress posting only">📤 Retry Post</button>`);
+      btns.push(actionBtn({ cls: 'btn-info', icon: '📤', label: 'Retry Post', title: 'Content already generated — retry WordPress posting only', onclick: `retryPostJob('${id}')` }));
     }
     // Drafted → offer regenerate content (keep WP post, just refresh content)
     if (j.status === 'drafted') {
-      btns.push(`<button class="btn btn-secondary btn-sm" onclick="regenerateJob('${id}')" title="Keep WP post, regenerate content only">↺ Regen</button>`);
+      btns.push(actionBtn({ cls: 'btn-secondary', icon: '↺', label: 'Regen', title: 'Keep WP post, regenerate content only', onclick: `regenerateJob('${id}')` }));
     }
     // Restart (clears everything)
-    btns.push(`<button class="btn btn-warning btn-sm" onclick="restartJob('${id}')" title="Clear all content & logs, restart from scratch">↺ Restart</button>`);
+    btns.push(actionBtn({ cls: 'btn-warning', icon: '↺', label: 'Restart', title: 'Clear all content & logs, restart from scratch', onclick: `restartJob('${id}')` }));
   }
 
   // ── Delete ──
   if (!active)
-    btns.push(`<button class="btn btn-danger btn-sm" onclick="deleteJob('${id}')" title="Delete job and all logs permanently">🗑</button>`);
+    btns.push(actionBtn({ cls: 'btn-danger', icon: '🗑', label: 'Delete', title: 'Delete job and all logs permanently', onclick: `deleteJob('${id}')` }));
 
   return btns.join('');
 }
@@ -1139,6 +1189,17 @@ socket.on('job:updated', (job) => {
   if (['drafted','error','posting','review'].includes(job.status)) scheduleAnalyticsRefresh();
 });
 socket.on('log:new', (log) => prependLog(log));
+socket.on('repurpose:progress', (p) => {
+  if (!p || !p.jobId) return;
+  const state = repurposeProgress[p.jobId] || (repurposeProgress[p.jobId] = { platforms: {} });
+  state.platforms[p.site] = { label: p.label, index: p.index, total: p.total };
+  renderPipeline(activeFilter ? allJobs.filter(j => matchFilter(j, activeFilter)) : allJobs);
+});
+socket.on('repurpose:done', (d) => {
+  if (!d) return;
+  if (d.jobId) delete repurposeProgress[d.jobId];
+  renderPipeline(activeFilter ? allJobs.filter(j => matchFilter(j, activeFilter)) : allJobs);
+});
 socket.on('stats:update', (stats) => updateStats(stats));
 socket.on('queue:state', (state) => {
   queuePaused = state.paused; updatePauseBtn();

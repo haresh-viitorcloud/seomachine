@@ -1410,4 +1410,10 @@ module.exports = {
   normalizeSeoTitle,
   normalizeMeta,
   readOAuthCredentials,
+  // Exposed for repurposeService — reuse the same CLI/SDK generation mechanism
+  // instead of duplicating the Claude CLI spawn logic.
+  generateViaCli,
+  generateViaSdk,
+  extractCliResult,
+  brandFromBlog,
 };
