@@ -319,7 +319,7 @@
 
     <!-- Astro/git-only frontmatter fields — editable while the post is staged for review -->
     <div id="pvFrontmatterFields" class="preview-section hidden">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
         <div>
           <label class="form-label" style="font-size:11px">Category</label>
           <select id="pvCat" class="form-control"></select>
@@ -327,6 +327,11 @@
         <div>
           <label class="form-label" style="font-size:11px">Author</label>
           <input id="pvAuthor" class="form-control" type="text" />
+        </div>
+        <div>
+          <label class="form-label" style="font-size:11px">Publish Date</label>
+          <input id="pvDate" class="form-control" type="date" />
+          <div class="form-hint" style="font-size:11px">Edit if this pending post's date has already passed.</div>
         </div>
       </div>
       <div style="display:flex;gap:16px;margin-top:10px">
@@ -995,6 +1000,12 @@ function draftLinkHtml(url, platform) {
   return `<a href="${href}" target="_blank" rel="noopener" class="btn btn-success btn-sm">${label}</a>`;
 }
 
+// Local (not UTC) YYYY-MM-DD, matching what <input type="date"> expects/returns.
+function todayYMD() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 async function showPreview(id) {
   const data = await API.get(`/api/jobs/${id}/preview`);
   if (!data) return;
@@ -1019,6 +1030,9 @@ async function showPreview(id) {
     document.getElementById('pvContentEdit').value = data.content || '';
     populateCategorySelect(data.category_options || [], data.category || '');
     document.getElementById('pvAuthor').value = data.author || 'Devlyn';
+    // Default to today, not the (possibly stale) date it was originally staged on —
+    // that's the whole point of this field: bump a pending post forward before publishing.
+    document.getElementById('pvDate').value = todayYMD();
     document.getElementById('pvFeatured').checked = !!data.featured;
     document.getElementById('pvNoindex').checked = !!data.noindex;
   } else {
@@ -1074,6 +1088,7 @@ async function saveReviewEdits(id) {
     excerpt: document.getElementById('pvMetaEdit').value.trim(),
     cat: currentCategoryValue(),
     author: document.getElementById('pvAuthor').value.trim(),
+    date: document.getElementById('pvDate').value,
     featured: document.getElementById('pvFeatured').checked,
     noindex: document.getElementById('pvNoindex').checked,
   });
