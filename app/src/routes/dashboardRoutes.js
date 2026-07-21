@@ -102,6 +102,9 @@ router.get('/api/jobs/:id/preview', requireAuth, (req, res) => {
     featured: !!job.review_featured,
     author: job.review_author || 'Devlyn',
     noindex: !!job.review_noindex,
+    // Staged frontmatter date (YYYY-MM-DD) — live from meta.json, not mirrored to a DB
+    // column, since it's only ever relevant while the post is staged for review.
+    date: staging.date || '',
     cover_image_url: staging.coverPath ? `/api/jobs/${req.params.id}/preview-image` : null,
     review_ready: staging.exists,
   });

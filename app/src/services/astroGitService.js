@@ -40,14 +40,23 @@ function getStagingInfo(jobId) {
   const dir = stagingDir(jobId);
   const coverPath = path.join(dir, 'cover.png');
   const postMdPath = path.join(dir, 'post.md');
+  const metaPath = path.join(dir, 'meta.json');
   let body = null;
   if (fs.existsSync(postMdPath)) {
     try { body = splitPostMdBody(fs.readFileSync(postMdPath, 'utf8')); } catch { /* ignore */ }
   }
+  // Staged frontmatter `date` (YYYY-MM-DD) — lets the preview route show the admin the
+  // date that will actually be committed, so a post staged on a now-past date can be
+  // edited forward before Commit & Push.
+  let date = null;
+  if (fs.existsSync(metaPath)) {
+    try { date = JSON.parse(fs.readFileSync(metaPath, 'utf8')).date || null; } catch { /* ignore */ }
+  }
   return {
-    exists: fs.existsSync(path.join(dir, 'meta.json')),
+    exists: fs.existsSync(metaPath),
     coverPath: fs.existsSync(coverPath) ? coverPath : null,
     body,
+    date,
   };
 }
 
@@ -621,6 +630,11 @@ async function updateStagedPost(jobId, fields = {}) {
   const merged = { ...meta };
   for (const key of ['title', 'cat', 'excerpt', 'author']) {
     if (fields[key] !== undefined) merged[key] = String(fields[key]);
+  }
+  if (fields.date !== undefined) {
+    const date = String(fields.date).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Invalid date — expected YYYY-MM-DD.');
+    merged.date = date;
   }
   for (const key of ['featured', 'noindex']) {
     if (fields[key] !== undefined) merged[key] = !!fields[key];
