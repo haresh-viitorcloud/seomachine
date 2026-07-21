@@ -1079,10 +1079,10 @@ function currentCategoryValue() {
   return document.getElementById('pvCat').value;
 }
 
-async function saveReviewEdits(id) {
-  const btn = document.getElementById('pvSaveBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
-  const data = await API.put(`/api/jobs/${id}/review-content`, {
+// Single source of truth for the staged-post edit fields — used by both the explicit
+// Save button and commitJob's auto-save, so the two can never drift out of sync.
+function collectReviewEditFields() {
+  return {
     title: document.getElementById('pvTitleEdit').value.trim(),
     content: document.getElementById('pvContentEdit').value,
     excerpt: document.getElementById('pvMetaEdit').value.trim(),
@@ -1091,7 +1091,13 @@ async function saveReviewEdits(id) {
     date: document.getElementById('pvDate').value,
     featured: document.getElementById('pvFeatured').checked,
     noindex: document.getElementById('pvNoindex').checked,
-  });
+  };
+}
+
+async function saveReviewEdits(id) {
+  const btn = document.getElementById('pvSaveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+  const data = await API.put(`/api/jobs/${id}/review-content`, collectReviewEditFields());
   if (data?.error) {
     showToast(data.error, 'warning');
   } else {
@@ -1103,6 +1109,18 @@ async function saveReviewEdits(id) {
 async function commitJob(id) {
   const btn = document.getElementById('pvCommitBtn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Committing…'; }
+
+  // commit-astro publishes exactly what's already staged on disk — it never reads the
+  // form. Persist the current fields (title/category/author/date/etc.) first so an
+  // edited-but-unsaved date (or any other field) can never be silently dropped in favor
+  // of the stale staged value.
+  const saved = await API.put(`/api/jobs/${id}/review-content`, collectReviewEditFields());
+  if (saved?.error) {
+    showToast(saved.error, 'warning');
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Commit & Push'; }
+    return;
+  }
+
   const data = await API.post(`/api/jobs/${id}/commit-astro`);
   if (data?.error) {
     showToast(data.error, 'warning');
