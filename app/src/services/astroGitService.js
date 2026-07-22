@@ -69,7 +69,7 @@ function cleanupStaging(jobId) {
 
 function run(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { maxBuffer: 1024 * 1024 * 64, ...opts }, (err, stdout, stderr) => {
+    execFile(cmd, args, { maxBuffer: 1024 * 1024 * 64, windowsHide: true, ...opts }, (err, stdout, stderr) => {
       if (err) {
         err.stdout = stdout;
         err.stderr = stderr;
@@ -155,6 +155,14 @@ async function ensureRepoReady(config, log) {
     await run('git', ['clone', url, repoPath]);
     await git(repoPath, ['remote', 'set-url', 'origin', repoUrl]);
   }
+
+  // Ensure a git committer identity on the managed clone. The sync merge below creates a
+  // merge commit once `branch` and `syncBranch` diverge, which fails with "Committer identity
+  // unknown" when no user.name/user.email is configured (global is usually unset on servers,
+  // and the content commit sets only its own author, not the committer). Idempotent — runs on
+  // every call, so a freshly cloned repo is covered too.
+  await git(repoPath, ['config', 'user.name', (config.astro_git_author_name || DEFAULT_AUTHOR_NAME).trim()]);
+  await git(repoPath, ['config', 'user.email', (config.astro_git_author_email || DEFAULT_AUTHOR_EMAIL).trim()]);
 
   log('Fetching latest from origin...');
   await git(repoPath, ['fetch', url, '+refs/heads/*:refs/remotes/origin/*']);
@@ -401,6 +409,10 @@ const QA_SCRIPTS = ['build', 'typecheck', 'validate:schema', 'validate:links', '
  * inside the managed clone. Throws with the failing script + tail of output on failure.
  */
 async function runQaGate(repoPath, log) {
+  if (process.env.ASTRO_SKIP_QA === '1') {
+    log('QA gate SKIPPED (ASTRO_SKIP_QA=1) — staging/committing without the local Astro build/validate; rely on the repo PR/CI on the feature branch.');
+    return;
+  }
   const env = resolveCompatibleNodeEnv(log);
   const nodeModulesPath = path.join(repoPath, 'node_modules');
   if (!fs.existsSync(nodeModulesPath)) {

@@ -63,6 +63,9 @@ published/*
 rewrites/*
 !rewrites/.gitkeep
 
+repurposed/*
+!repurposed/.gitkeep
+
 # Don't ignore context files - these should be committed after customization
 # !context/
 

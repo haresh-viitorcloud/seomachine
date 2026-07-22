@@ -58,6 +58,7 @@ function scrubAndScore(content, opts = {}) {
     const proc = crossSpawn(pythonBin, [GATE_SCRIPT, inFile, outFile, root], {
       env: { ...process.env },
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true, // don't flash a console window on Windows
     });
 
     const timer = setTimeout(() => {

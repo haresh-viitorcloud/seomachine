@@ -161,6 +161,7 @@ function runCodex(codexBin, prompt, cwd, timeoutMs) {
       // fixed at the infra level.
       proc = spawn(codexBin, ['exec', '-s', 'danger-full-access', '--skip-git-repo-check', '-C', cwd], {
         cwd, env: { ...process.env, NO_COLOR: '1' },
+        windowsHide: true, // don't flash a console window on Windows
       });
     } catch { return finish(false); }
     // Drain stdout/stderr so the pipe buffer never fills (Codex is verbose). We don't
@@ -169,7 +170,7 @@ function runCodex(codexBin, prompt, cwd, timeoutMs) {
     if (proc.stdout) proc.stdout.on('data', () => {});
     if (proc.stderr) proc.stderr.on('data', () => {});
     const timer = setTimeout(() => {
-      try { if (process.platform === 'win32' && proc.pid) spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F']); else proc.kill('SIGKILL'); } catch { /* ignore */ }
+      try { if (process.platform === 'win32' && proc.pid) spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true }); else proc.kill('SIGKILL'); } catch { /* ignore */ }
       finish(false);
     }, timeoutMs);
     proc.on('error', () => { clearTimeout(timer); finish(false); });

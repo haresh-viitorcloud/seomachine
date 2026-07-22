@@ -73,6 +73,9 @@ function execClaudeAsync(args, opts = {}) {
       // The generation path (generateViaCli) already passes shell:true for this reason;
       // the detection helper must match it. shell only affects Windows; POSIX is unchanged.
       shell: process.platform === 'win32',
+      // Suppress the console window Windows would otherwise flash for the shim (shell:true
+      // launches via cmd.exe). No effect on POSIX. See generateViaCli for the same flag.
+      windowsHide: true,
       ...spawnOpts,
     });
 
@@ -96,7 +99,7 @@ function execClaudeAsync(args, opts = {}) {
     const killTree = () => {
       if (!proc.pid) return;
       if (process.platform === 'win32') {
-        crossSpawn('taskkill', ['/pid', String(proc.pid), '/T', '/F']);
+        crossSpawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true });
       } else {
         proc.kill('SIGKILL');
       }
@@ -436,6 +439,7 @@ async function generateViaCli(systemContent, userPrompt, onProgress, cwd) {
       cwd: cwd || process.cwd(),
       stdio: [stdinFd, 'pipe', 'pipe'],
       shell: process.platform === 'win32', // Windows installs claude as claude.cmd
+      windowsHide: true, // don't flash a console window for the CLI shim
     });
 
     proc.stdout.on('data', (chunk) => {
@@ -1128,6 +1132,16 @@ async function checkCliStatus() {
   // transient rate-limit, or a network blip. Only a clear "not logged in" signal marks
   // the session as unauthenticated; anything else stays "unknown" so a blip cannot
   // masquerade as a logged-out session and block generation.
+  //
+  // IMPORTANT: the AUTH_FAIL heuristic is applied ONLY to genuine failure output
+  // (a structured `is_error:true` payload, stderr, or a thrown error) — NEVER to a
+  // successful reply. `claude -p "Hi"` runs in the app's cwd and loads CLAUDE.md, so
+  // the greeting often echoes project vocabulary ("authentication", "credentials",
+  // "OAuth", "API key"), and the JSON metadata carries numeric fields that can contain
+  // "401"/"403". Scanning that success text was matching those benign tokens and
+  // reporting a FALSE "not logged in" — cached for 60s, so every rapid retry hard-failed
+  // even though the CLI was fully authenticated. With `--output-format json` the
+  // structured success flag (`is_error === false`) is authoritative; trust it.
   const AUTH_FAIL = /(please |run )?(\/)?log ?in|logged out|not logged in|authenticat|unauthor|invalid api key|expired|oauth|credential|\b401\b|\b403\b|forbidden/;
   try {
     const { stdout, stderr, code } = await execClaudeAsync([
@@ -1137,13 +1151,36 @@ async function checkCliStatus() {
     ], {
       timeout: 30000,
     });
-    const combined = `${stdout} ${stderr}`.toLowerCase();
-    if (AUTH_FAIL.test(combined)) {
+
+    // Prefer the structured JSON verdict over any text scan.
+    let parsed = null;
+    try { parsed = JSON.parse((stdout || '').trim()); } catch { /* not JSON — handled below */ }
+
+    if (parsed && typeof parsed === 'object' && 'is_error' in parsed) {
+      if (parsed.is_error === true) {
+        // A real error — inspect ONLY the error text (never the numeric metadata) for
+        // an auth signal. Anything else is a non-auth failure → stay "unknown".
+        const errText = `${parsed.subtype || ''} ${parsed.result || parsed.error || ''} ${stderr}`.toLowerCase();
+        if (AUTH_FAIL.test(errText)) {
+          result.authenticated = false;
+          result.authKnown = true;
+          return cache(CLI_CACHE_TTL);
+        }
+        return cache(CLI_CACHE_TTL_UNCONFIRMED);
+      }
+      // Structured success — the round-trip authenticated. Authoritative.
+      result.authenticated = true;
+      result.authKnown = true;
+      return cache(CLI_CACHE_TTL);
+    }
+
+    // Non-JSON output (older CLI / partial write). Scan ONLY stderr for an auth signal,
+    // then fall back to the exit code.
+    if (AUTH_FAIL.test((stderr || '').toLowerCase())) {
       result.authenticated = false;
       result.authKnown = true;
       return cache(CLI_CACHE_TTL);
     }
-    // A clean exit, or any non-empty JSON response, means the round-trip worked.
     if (code === 0 || (stdout || '').trim().length > 0) {
       result.authenticated = true;
       result.authKnown = true;
@@ -1190,6 +1227,7 @@ function streamCliOutput(promptText, onLine, onDone) {
     env: { ...process.env, NO_COLOR: '1', TERM: 'dumb' },
     cwd: process.cwd(),
     shell: process.platform === 'win32',
+    windowsHide: true, // don't flash a console window for the CLI shim
   });
 
   let buffer = '';
