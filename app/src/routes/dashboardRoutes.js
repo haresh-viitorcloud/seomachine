@@ -5,6 +5,7 @@ const schedulerService = require('../services/schedulerService');
 const seoScoreService = require('../services/seoScoreService');
 const claudeService = require('../services/claudeService');
 const astroGitService = require('../services/astroGitService');
+const repurposeService = require('../services/repurposeService');
 const { marked } = require('marked');
 
 const router = express.Router();
@@ -343,6 +344,97 @@ router.post('/api/jobs/:id/regenerate', requireAuth, (req, res) => {
     const job = queueService.regenerateContentJob(req.params.id);
     queueService.addLog(req.params.id, 'info', 'Regenerate content — clearing generated content, WP post will be updated on next run');
     res.json({ ok: true, job });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Repurpose targets available for the "site" dropdown — fetched live from the sites
+// API (see REPURPOSE_SITES_API_URL), cached briefly by repurposeService. Optional
+// ?category=slug narrows each site's accountCount to just that brand's accounts.
+router.get('/api/repurpose/platforms', requireAuth, async (req, res) => {
+  try {
+    const category = String(req.query.category || '').trim() || undefined;
+    res.json({ platforms: await repurposeService.listPlatforms(undefined, category) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Brand categories for the Repurpose Category filter (see REPURPOSE_CATEGORIES_API_URL).
+router.get('/api/repurpose/categories', requireAuth, async (req, res) => {
+  try {
+    res.json({ categories: await repurposeService.listCategories() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Batches currently running, keyed by job id — lets a freshly loaded page (Jobs or
+// Dashboard, after navigating away and back — a full reload with no socket history)
+// reconstruct "is this job mid-repurpose?" instead of only knowing about it if it
+// happened to be open receiving 'repurpose:progress' events the whole time.
+router.get('/api/repurpose/active', requireAuth, (req, res) => {
+  try {
+    res.json({ active: repurposeService.getActiveBatches() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Past repurposed variations for a job — read live from each platform's manifest file
+// (no DB — same file-based approach the rest of this feature already uses).
+router.get('/api/jobs/:id/repurpose-history', requireAuth, async (req, res) => {
+  try {
+    res.json({ history: await repurposeService.getHistoryForJob(req.params.id) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Raw content of one previously-generated repurpose file, for the History preview.
+// platform/file are validated against this job's own manifest entries inside
+// readHistoryFileContent — not treated as trusted filesystem input.
+router.get('/api/jobs/:id/repurpose-history/file', requireAuth, async (req, res) => {
+  try {
+    const { platform, file } = req.query;
+    if (!platform || !file) return res.status(400).json({ error: 'platform and file are required' });
+    const content = await repurposeService.readHistoryFileContent(req.params.id, String(platform), String(file));
+    res.json({ content });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Bulk multi-platform repurposing — spins the job's generated content into N unique
+// variations per selected platform, writes them to repurposed/{platform}/, and returns
+// immediately (generation is slow — the UI gets progress via 'repurpose:progress' /
+// 'repurpose:done' socket events and the inline activity log, same as process-now).
+router.post('/api/jobs/:id/repurpose', requireAuth, async (req, res) => {
+  try {
+    const job = queueService.getJob(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (job.status !== 'drafted') {
+      return res.status(400).json({ error: 'Only fully drafted (published) jobs can be repurposed.' });
+    }
+
+    const { platforms, mode, datetime, category } = req.body || {};
+    if (!Array.isArray(platforms) || !platforms.length) {
+      return res.status(400).json({ error: 'At least one platform + count is required.' });
+    }
+    if (mode === 'scheduled' && !datetime) {
+      return res.status(400).json({ error: 'A scheduled date & time is required when Scheduled is selected.' });
+    }
+
+    // Respond immediately — generation for N variations x M platforms is slow.
+    res.json({ ok: true, message: 'Repurposing started — watch the activity log for progress.' });
+
+    repurposeService
+      .runRepurposeBatch(req.params.id, platforms, { mode, datetime }, category || null)
+      .catch((err) => {
+        queueService.addLog(req.params.id, 'error', `Repurpose batch failed: ${err.message}`);
+        queueService.emitEvent('repurpose:done', { jobId: req.params.id, summary: [], error: err.message });
+      });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

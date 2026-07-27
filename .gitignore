@@ -68,6 +68,7 @@ repurposed/*
 
 # Don't ignore context files - these should be committed after customization
 # !context/
+repurposed
 
 # Node modules if using any tools
 node_modules/
