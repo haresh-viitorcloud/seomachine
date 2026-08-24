@@ -16,6 +16,13 @@ const CHROME_EXECUTABLE = process.platform === 'linux' && fs.existsSync(SYSTEM_C
   ? SYSTEM_CHROME
   : undefined;
 
+// Blogs (by slug) that manage their own featured images manually — generation/upload
+// is skipped entirely for them so posts are created without one; everything else
+// (categories, tags, SEO meta) still applies normally. Override/extend via env
+// IMAGE_GENERATION_DISABLED_BLOGS (comma-separated slugs).
+const IMAGE_GENERATION_DISABLED_BLOGS = (process.env.IMAGE_GENERATION_DISABLED_BLOGS || 'viitorx')
+  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+
 /**
  * Posts a blog draft to WordPress using the configured method.
  *
@@ -66,7 +73,18 @@ async function postViaRestApi(config, content, rowData, onProgress) {
 
   // ── Check for existing post by same author — update instead of creating duplicate ──
   if (onProgress) onProgress('Checking for existing post...');
-  const existingId = await findExistingPostApi(apiBase, headers, content.title, parseInt(config.wp_author_id) || 1);
+  const existingMatch = await findExistingPostApi(apiBase, headers, content.title, parseInt(config.wp_author_id) || 1);
+  // Safety guard: never let an automated job silently overwrite a post that's already
+  // LIVE. A title match against a published post almost certainly means this content
+  // already exists on the site (e.g. a stale/replayed job in a content calendar) —
+  // auto-updating it would overwrite real, public content with generated/test output.
+  // Refreshing a published post is a distinct, explicit action, not an automatic one.
+  if (existingMatch?.status === 'publish') {
+    throw new Error(
+      `A published post already exists with this title (ID ${existingMatch.id}) — refusing to auto-overwrite live content. Delete/rename this job or update the post manually.`
+    );
+  }
+  const existingId = existingMatch?.id || null;
   if (existingId) {
     if (onProgress) onProgress(`Found existing post ID ${existingId} — updating instead of creating new`);
   } else {
@@ -93,30 +111,38 @@ async function postViaRestApi(config, content, rowData, onProgress) {
 
   // Generate and upload featured image
   let featuredMediaId = null;
+  let featuredMediaUrl = null;
   let imageSource = '';
-  try {
-    if (onProgress) onProgress('Generating featured image...');
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content, content.meta_description);
-    imageSource = img.source || '';
-    if (onProgress) onProgress(`Featured image created via ${imageSource} (${Math.round(img.size / 1024)}KB) — uploading...`);
+  // ViitorX manages featured images manually — skip generation/upload entirely so
+  // the post is created without one (categories/tags/SEO meta below still apply).
+  if (IMAGE_GENERATION_DISABLED_BLOGS.includes(config.slug)) {
+    if (onProgress) onProgress('Featured image generation skipped (manual images for this blog)');
+  } else {
+    try {
+      if (onProgress) onProgress('Generating featured image...');
+      const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content, content.meta_description);
+      imageSource = img.source || '';
+      if (onProgress) onProgress(`Featured image created via ${imageSource} (${Math.round(img.size / 1024)}KB) — uploading...`);
 
-    const form = new FormData();
-    // Use the in-memory buffer (saveTempImage returns it) rather than a read stream —
-    // a stream 'error' event can escape this try/catch and crash the process.
-    // Image file NAME is the primary-keyword slug (SEO-friendly, matches media Title).
-    form.append('file', img.buffer, {
-      filename: `${slugify(rowData.primary_keyword || content.title)}.webp`,
-      contentType: 'image/webp',
-    });
-    const mediaRes = await axios.post(`${apiBase}/media`, form, {
-      headers: { ...headers, ...form.getHeaders() },
-      timeout: 30000,
-    });
-    featuredMediaId = mediaRes.data.id;
-    fs.unlink(img.path, () => {});
-    if (onProgress) onProgress(`Featured image uploaded — Media ID: ${featuredMediaId}`);
-  } catch (imgErr) {
-    if (onProgress) onProgress(`Featured image skipped: ${imgErr.message}`);
+      const form = new FormData();
+      // Use the in-memory buffer (saveTempImage returns it) rather than a read stream —
+      // a stream 'error' event can escape this try/catch and crash the process.
+      // Image file NAME is the primary-keyword slug (SEO-friendly, matches media Title).
+      form.append('file', img.buffer, {
+        filename: `${slugify(rowData.primary_keyword || content.title)}.webp`,
+        contentType: 'image/webp',
+      });
+      const mediaRes = await axios.post(`${apiBase}/media`, form, {
+        headers: { ...headers, ...form.getHeaders() },
+        timeout: 30000,
+      });
+      featuredMediaId = mediaRes.data.id;
+      featuredMediaUrl = mediaRes.data.source_url || null;
+      fs.unlink(img.path, () => {});
+      if (onProgress) onProgress(`Featured image uploaded — Media ID: ${featuredMediaId}`);
+    } catch (imgErr) {
+      if (onProgress) onProgress(`Featured image skipped: ${imgErr.message}`);
+    }
   }
 
   // Set the featured-image media metadata. Fixed mapping for every blog image:
@@ -149,7 +175,11 @@ async function postViaRestApi(config, content, rowData, onProgress) {
     ...(industryIds.length ? { [taxBases.industry]: industryIds } : {}),
     author: parseInt(config.wp_author_id) || 1,
     ...((content.slug || rowData.primary_keyword) ? { slug: content.slug || slugify(rowData.primary_keyword) } : {}),
-    ...(featuredMediaId ? { featured_media: featuredMediaId } : {}),
+    // Blogs that manage images manually get featured_media explicitly cleared (0) —
+    // not just left untouched — so an image set before this blog opted out of auto
+    // generation doesn't linger on an existing post that gets updated again.
+    ...(featuredMediaId ? { featured_media: featuredMediaId }
+      : IMAGE_GENERATION_DISABLED_BLOGS.includes(config.slug) ? { featured_media: 0 } : {}),
     meta: {
       // Rank Math
       rank_math_title: seoTitle,
@@ -173,6 +203,7 @@ async function postViaRestApi(config, content, rowData, onProgress) {
     post_url: post.link,
     edit_url: `${config.wp_url.replace(/\/$/, '')}/wp-admin/post.php?post=${post.id}&action=edit`,
     image_source: imageSource,
+    image_url: featuredMediaUrl,
   };
 }
 
@@ -251,7 +282,18 @@ async function postViaBrowser(config, content, rowData, onProgress) {
     // ── Now check for existing post by same author (nonce is available after editor loads) ──
     const wpBase = `${config.wp_url.replace(/\/$/, '')}/wp-json/wp/v2`;
     const authorId = parseInt(config.wp_author_id) || 1;
-    const existingPostId = await findExistingPostBrowser(page, content.title, wpBase, authorId);
+    const existingMatch = await findExistingPostBrowser(page, content.title, wpBase, authorId);
+    // Safety guard: never let an automated job silently overwrite a post that's already
+    // LIVE. A title match against a published post almost certainly means this content
+    // already exists on the site (e.g. a stale/replayed job in a content calendar) —
+    // auto-updating it would overwrite real, public content with generated/test output.
+    // Refreshing a published post is a distinct, explicit action, not an automatic one.
+    if (existingMatch?.status === 'publish') {
+      throw new Error(
+        `A published post already exists with this title (ID ${existingMatch.id}) — refusing to auto-overwrite live content. Delete/rename this job or update the post manually.`
+      );
+    }
+    const existingPostId = existingMatch?.id || null;
 
     if (existingPostId) {
       if (onProgress) onProgress(`Found existing post ID ${existingPostId} — updating instead of creating new`);
@@ -285,34 +327,59 @@ async function postViaBrowser(config, content, rowData, onProgress) {
     }
 
     let imageSource = '';
+    let imageUrl = null;
+    let classicPostId = null;
     if (isGutenberg) {
-      imageSource = (await fillGutenbergEditor(page, content, rowData, config, onProgress)) || '';
+      const gutenbergResult = await fillGutenbergEditor(page, content, rowData, config, onProgress);
+      imageSource = gutenbergResult?.imageSource || '';
+      imageUrl = gutenbergResult?.imageUrl || null;
     } else {
-      imageSource = (await fillClassicEditor(page, content, rowData, config, onProgress)) || '';
+      const classicResult = await fillClassicEditor(page, content, rowData, config, onProgress);
+      imageSource = classicResult?.imageSource || '';
+      imageUrl = classicResult?.imageUrl || null;
+      classicPostId = classicResult?.postId || null;
     }
 
-    // ── Get post ID — wait for Gutenberg to update the URL after first save ──
-    try {
-      await page.waitForURL(/post=\d+/, { timeout: 30000 });
-    } catch { /* URL may already contain post ID or save happened silently */ }
+    // ── Get post ID ──
+    // Classic Editor already resolved (and used) its post ID internally — trust that
+    // directly rather than re-deriving it from the URL, since Save Draft's redirect
+    // timing can be slow/unreliable to observe from out here.
+    let postId = classicPostId;
+    if (!postId) {
+      // Gutenberg: wait for the URL to update after first save
+      try {
+        await page.waitForURL(/post=\d+/, { timeout: 30000 });
+      } catch { /* URL may already contain post ID or save happened silently */ }
 
+      const currentUrl = page.url();
+      const postIdMatch = currentUrl.match(/post=(\d+)/);
+      if (postIdMatch) {
+        postId = parseInt(postIdMatch[1]);
+      } else if (isGutenberg) {
+        // Gutenberg: try reading post ID from the editor's internal data store
+        postId = await page.evaluate(() => {
+          try { return window.wp?.data?.select('core/editor')?.getCurrentPostId?.() || null; } catch { return null; }
+        });
+      }
+    }
+
+    // Build the edit URL from postId directly rather than trusting page.url() here —
+    // Classic Editor's Save Draft redirect can still be in flight (this admin has been
+    // observed taking minutes to respond) when we reach this point, so the live address
+    // bar may still show post-new.php even though postId itself was already correctly
+    // resolved and used for the REST calls above. A postId-derived URL is always right;
+    // page.url() is only a fallback for the rare case postId couldn't be determined.
     const currentUrl = page.url();
-    let postId = null;
-    const postIdMatch = currentUrl.match(/post=(\d+)/);
-    if (postIdMatch) {
-      postId = parseInt(postIdMatch[1]);
-    } else if (isGutenberg) {
-      // Gutenberg: try reading post ID from the editor's internal data store
-      postId = await page.evaluate(() => {
-        try { return window.wp?.data?.select('core/editor')?.getCurrentPostId?.() || null; } catch { return null; }
-      });
-    }
+    const editUrl = postId
+      ? `${config.wp_url.replace(/\/$/, '')}/wp-admin/post.php?post=${postId}&action=edit`
+      : currentUrl;
 
     return {
       post_id: postId,
       post_url: postId ? `${config.wp_url.replace(/\/$/, '')}/?p=${postId}` : '',
-      edit_url: currentUrl,
+      edit_url: editUrl,
       image_source: imageSource,
+      image_url: imageUrl,
     };
   } finally {
     await browser.close();
@@ -453,8 +520,11 @@ async function fillGutenbergEditor(page, content, rowData, config, onProgress) {
 
   // ── Set all post meta via in-browser REST API (uses authenticated session) ──
   let browserImageSource = '';
+  let browserImageUrl = null;
   if (postId) {
-    browserImageSource = await setPostMetaViaBrowser(page, postId, content, rowData, config, onProgress) || '';
+    const metaResult = await setPostMetaViaBrowser(page, postId, content, rowData, config, onProgress);
+    browserImageSource = metaResult?.imageSource || '';
+    browserImageUrl = metaResult?.imageUrl || null;
   }
 
   // ── Populate the theme's native "Blog FAQs" ACF field ──
@@ -487,7 +557,7 @@ async function fillGutenbergEditor(page, content, rowData, config, onProgress) {
     await writeSeoMetaLast(page, postId, content, rowData, config, onProgress);
   }
 
-  return browserImageSource;
+  return { imageSource: browserImageSource, imageUrl: browserImageUrl };
 }
 
 // Final REST write of Rank Math + Yoast SEO meta (focus keyword, title, description) so it
@@ -644,18 +714,24 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
   let imageBase64 = null;
   let imageFilename = 'featured.webp';
   let imageSource = '';
-  try {
-    const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content, content.meta_description);
-    imageBase64 = img.buffer.toString('base64');
-    // Image file NAME is the primary-keyword slug (SEO-friendly, matches media Title),
-    // not the throwaway ct-image-<timestamp> temp basename.
-    imageFilename = `${slugify(rowData.primary_keyword || content.title || 'featured')}.webp`;
-    imageSource = img.source || '';
-    fs.unlink(img.path, () => {});
-    if (onProgress) onProgress(`Featured image ready: ${imageSource} (${Math.round(img.size / 1024)}KB)`);
-  } catch (e) {
-    imageSource = '';
-    if (onProgress) onProgress(`Featured image generation failed: ${e.message.substring(0, 60)}`);
+  // ViitorX manages featured images manually — skip generation/upload entirely so
+  // the post is created without one (categories/tags/SEO meta below still apply).
+  if (IMAGE_GENERATION_DISABLED_BLOGS.includes(config.slug)) {
+    if (onProgress) onProgress('Featured image generation skipped (manual images for this blog)');
+  } else {
+    try {
+      const img = await imageService.saveTempImage(content.title, rowData.primary_keyword, rowData.theme, content.image_prompt, config, content.content, content.meta_description);
+      imageBase64 = img.buffer.toString('base64');
+      // Image file NAME is the primary-keyword slug (SEO-friendly, matches media Title),
+      // not the throwaway ct-image-<timestamp> temp basename.
+      imageFilename = `${slugify(rowData.primary_keyword || content.title || 'featured')}.webp`;
+      imageSource = img.source || '';
+      fs.unlink(img.path, () => {});
+      if (onProgress) onProgress(`Featured image ready: ${imageSource} (${Math.round(img.size / 1024)}KB)`);
+    } catch (e) {
+      imageSource = '';
+      if (onProgress) onProgress(`Featured image generation failed: ${e.message.substring(0, 60)}`);
+    }
   }
 
   const allTags = [
@@ -669,8 +745,12 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
   if (!categoryNames.length && content.category) categoryNames.push(content.category);
 
   // Run all REST API operations inside the browser (uses the existing WP session)
-  const result = await page.evaluate(async ({ wpUrl, postId, categoryNames, tags, industryNames, focusKeyword, metaDescription, seoTitle, slug, imageAlt, blogTitle, imageBase64, imageFilename }) => {
+  const clearFeaturedImage = IMAGE_GENERATION_DISABLED_BLOGS.includes(config.slug);
+  const result = await page.evaluate(async ({ wpUrl, postId, categoryNames, tags, industryNames, focusKeyword, metaDescription, seoTitle, slug, imageAlt, blogTitle, imageBase64, imageFilename, clearFeaturedImage }) => {
     const log = [];
+    // Declared here (not inside the try block below) so it's still in scope for the
+    // final `return` after the try/catch closes.
+    let featuredMediaUrl = null;
     try {
       // Get nonce for REST API
       const nonce = window.wpApiSettings?.nonce || window.wp?.apiFetch?.nonceMiddleware?.nonce || '';
@@ -758,6 +838,7 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
           if (mediaRes.ok) {
             const media = await mediaRes.json();
             featuredMediaId = media.id;
+            featuredMediaUrl = media.source_url || null;
             log.push(`Featured image uploaded: Media ID ${featuredMediaId}`);
             // Fixed media-metadata mapping for every blog image:
             //   Alt Text    = meta description   Title       = primary keyword
@@ -786,7 +867,10 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
         ...(categoryIds.length ? { categories: categoryIds } : {}),
         ...(tagIds.length ? { [tagBase]: tagIds } : {}),
         ...(industryIds.length ? { [industryBase]: industryIds } : {}),
-        ...(featuredMediaId ? { featured_media: featuredMediaId } : {}),
+        // Blogs that manage images manually get featured_media explicitly cleared (0) —
+        // not just left untouched — so an image set before this blog opted out of auto
+        // generation doesn't linger on an existing post that gets updated again.
+        ...(featuredMediaId ? { featured_media: featuredMediaId } : clearFeaturedImage ? { featured_media: 0 } : {}),
         ...(slug ? { slug } : {}),
         meta: {
           rank_math_title: seoTitle || '',
@@ -804,17 +888,17 @@ async function setPostMetaViaBrowser(page, postId, content, rowData, config, onP
     } catch (e) {
       log.push(`Error: ${e.message}`);
     }
-    return log;
-  }, { wpUrl, postId, categoryNames, tags: allTags, industryNames: [rowData.target_industry].filter(Boolean), focusKeyword: rowData.primary_keyword, metaDescription: content.meta_description, seoTitle: content.seo_title || content.title, slug: content.slug || slugify(rowData.primary_keyword || ''), imageAlt: content.image_alt || rowData.primary_keyword || '', blogTitle: content.title || '', imageBase64, imageFilename });
+    return { log, imageUrl: featuredMediaUrl };
+  }, { wpUrl, postId, categoryNames, tags: allTags, industryNames: [rowData.target_industry].filter(Boolean), focusKeyword: rowData.primary_keyword, metaDescription: content.meta_description, seoTitle: content.seo_title || content.title, slug: content.slug || slugify(rowData.primary_keyword || ''), imageAlt: content.image_alt || rowData.primary_keyword || '', blogTitle: content.title || '', imageBase64, imageFilename, clearFeaturedImage });
 
   // Log each result message
-  if (result && Array.isArray(result)) {
-    for (const msg of result) {
+  if (result?.log && Array.isArray(result.log)) {
+    for (const msg of result.log) {
       if (onProgress) onProgress(msg);
     }
   }
 
-  return imageSource;
+  return { imageSource, imageUrl: result?.imageUrl || null };
 }
 
 async function gutenbergSaveDraft(page) {
@@ -1086,17 +1170,81 @@ async function fillClassicEditor(page, content, rowData, config, onProgress) {
   const fullContent = composeContentHtml(content, { siteUrl: config.wp_url, blogSlug: config.slug });
   await page.fill('#content', fullContent);
 
-  // Set excerpt/meta description
-  const excerptField = await page.$('#excerpt');
-  if (excerptField && content.meta_description) {
-    await excerptField.fill(content.meta_description);
+  // Set excerpt/meta description. Set the value directly via JS instead of
+  // Playwright's .fill() — the Excerpt metabox is hidden-by-default per WP user
+  // (Screen Options), so the element exists in the DOM but Playwright's
+  // actionability check (visible+enabled+editable) never passes and .fill()
+  // hangs for the full default timeout. A hidden textarea's value still submits
+  // normally with the rest of the post form, so this is safe regardless of
+  // whether the metabox happens to be expanded.
+  if (content.meta_description) {
+    const excerptSet = await page.evaluate((val) => {
+      const el = document.querySelector('#excerpt');
+      if (!el) return false;
+      el.value = val;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    }, content.meta_description);
+    if (onProgress) onProgress(excerptSet ? 'Excerpt/meta description set' : 'Excerpt field not found — skipped');
   }
 
   if (onProgress) onProgress('Saving as draft...');
-  await page.click('#save-post');
-  await page.waitForTimeout(3000);
+  // Click via JS instead of Playwright's page.click() — WordPress's fixed/sticky
+  // #wpadminbar sits at the top of every wp-admin page and can end up overlapping
+  // #save-post after scroll-into-view, which makes Playwright's real-mouse click
+  // wait (and eventually time out after 180s) for the adminbar to stop "intercepting
+  // pointer events". Calling .click() on the element directly fires a real click/
+  // submit event without needing to hit-test screen coordinates, so the overlap
+  // is irrelevant.
+  const saveClicked = await page.evaluate(() => {
+    const btn = document.querySelector('#save-post');
+    if (!btn) return false;
+    btn.click();
+    return true;
+  });
+  if (!saveClicked) {
+    if (onProgress) onProgress('#save-post not found via JS — falling back to forced click');
+    await page.click('#save-post', { force: true, timeout: 30000 });
+  }
+  // Classic Editor's Save Draft does a full page reload (not an in-place AJAX
+  // update like Gutenberg), so wait for navigation instead of a fixed delay.
+  await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(1500);
 
-  return ''; // classic editor path does not set a featured image source
+  // ── Get post ID (URL first, then the classic editor's hidden #post_ID field) ──
+  let postId = null;
+  const urlMatch = page.url().match(/post=(\d+)/);
+  if (urlMatch) {
+    postId = parseInt(urlMatch[1]);
+  } else {
+    postId = await page.evaluate(() => {
+      const el = document.querySelector('#post_ID');
+      return el ? parseInt(el.value, 10) || null : null;
+    });
+  }
+
+  // ── Set featured image, categories, tags via in-browser REST API (same ──
+  // mechanism the Gutenberg path uses — reuses the authenticated session's
+  // cookies + REST nonce, no click-driven media-modal automation needed).
+  let browserImageSource = '';
+  let browserImageUrl = null;
+  if (postId) {
+    const metaResult = await setPostMetaViaBrowser(page, postId, content, rowData, config, onProgress);
+    browserImageSource = metaResult?.imageSource || '';
+    browserImageUrl = metaResult?.imageUrl || null;
+    // Final SEO meta write (Rank Math/Yoast focus keyword, title, description, slug) —
+    // written last so it isn't clobbered by Rank Math's own on-save handler.
+    await writeSeoMetaLast(page, postId, content, rowData, config, onProgress);
+  } else if (onProgress) {
+    onProgress('Could not determine post ID after save — featured image/SEO meta skipped');
+  }
+
+  // Return postId directly rather than relying on the caller's URL-based
+  // re-detection: Classic Editor's Save Draft redirect can be slow/unreliable
+  // to observe from outside, but we already resolved postId reliably above
+  // (proven by the successful REST calls when it's set).
+  return { postId, imageSource: browserImageSource, imageUrl: browserImageUrl };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1194,7 +1342,7 @@ async function findExistingPostApi(apiBase, headers, title, authorId) {
       const match = authorId
         ? bySlug.data.find(p => p.author === authorId) || bySlug.data[0]
         : bySlug.data[0];
-      if (match) return match.id;
+      if (match) return { id: match.id, status: match.status };
     }
 
     // Fallback: search by title text
@@ -1206,7 +1354,7 @@ async function findExistingPostApi(apiBase, headers, title, authorId) {
       const exact = byTitle.data.find(
         p => (p.title?.rendered || '').toLowerCase().replace(/&#[0-9]+;/g, '').replace(/&amp;/g, '&') === title.toLowerCase()
       );
-      if (exact) return exact.id;
+      if (exact) return { id: exact.id, status: exact.status };
     }
   } catch { /* not found or API error — proceed with new post */ }
   return null;
@@ -1248,7 +1396,7 @@ async function findExistingPostBrowser(page, title, wpBase, authorId) {
         // OVERWRITES the matched post, so two different articles sharing a prefix
         // (e.g. "...for beginners" vs "...for enterprises") would clobber each other.
         const exact = results.find(p => norm(p.title?.rendered) === normTitle);
-        if (exact) return exact.id;
+        if (exact) return { id: exact.id, status: exact.status };
       }
       return null;
     }, { wpBase, title });

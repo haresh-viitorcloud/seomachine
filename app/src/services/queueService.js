@@ -66,6 +66,7 @@ function updateJobStatus(id, status, extra = {}) {
   if (extra.wp_post_id !== undefined) { fields.push('wp_post_id = ?'); values.push(extra.wp_post_id); }
   if (extra.wp_post_url !== undefined) { fields.push('wp_post_url = ?'); values.push(extra.wp_post_url); }
   if (extra.image_source !== undefined) { fields.push('image_source = ?'); values.push(extra.image_source); }
+  if (extra.generated_image_url !== undefined) { fields.push('generated_image_url = ?'); values.push(extra.generated_image_url); }
   if (extra.error_message !== undefined) { fields.push('error_message = ?'); values.push(extra.error_message); }
   if (extra.retry_count !== undefined) { fields.push('retry_count = ?'); values.push(extra.retry_count); }
   if (extra.scheduled_at !== undefined) { fields.push('scheduled_at = ?'); values.push(extra.scheduled_at); }

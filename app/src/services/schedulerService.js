@@ -208,6 +208,7 @@ async function processJob(job) {
         wp_post_id: result.post_id,
         wp_post_url: result.edit_url || result.post_url,
         image_source: result.image_source || '',
+        generated_image_url: result.image_url || '',
       });
 
       queueService.addLog(job.id, 'success', `Draft saved successfully! Post ID: ${result.post_id}`);
