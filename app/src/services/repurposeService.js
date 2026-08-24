@@ -23,6 +23,13 @@ const queueService = require('./queueService');
 const imageService = require('./imageService');
 const { ObjectId } = require('mongodb');
 
+// Blogs (by slug) that manage their own images manually — repurpose covers are
+// skipped for them too, same as the main WordPress posting flow (wordpressService.js
+// has its own copy of this list keyed off the same env var). Override/extend via env
+// IMAGE_GENERATION_DISABLED_BLOGS (comma-separated slugs).
+const IMAGE_GENERATION_DISABLED_BLOGS = (process.env.IMAGE_GENERATION_DISABLED_BLOGS || 'viitorx')
+  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+
 const MAX_TITLE_WORDS = 6;
 // Two variations of the same platform sharing more than this fraction of 8-word
 // shingles are considered too similar — trigger one regeneration attempt.
@@ -425,6 +432,29 @@ async function readHistoryFileContent(jobId, platform, file, root) {
   return fs.readFileSync(filePath, 'utf8');
 }
 
+/**
+ * Absolute path to a previously-generated repurpose variation's cover image — same
+ * manifest cross-check as readHistoryFileContent (this job actually generated this
+ * file, and its recorded `cover` field is what we serve, not attacker-supplied input).
+ */
+async function readHistoryImagePath(jobId, platform, file, root) {
+  const resolvedRoot = root || seomachineService.resolveRoot();
+  const known = await listPlatforms(resolvedRoot);
+  if (!known.some((p) => p.id === platform)) throw new Error('Unknown platform');
+  const dir = path.join(repurposedBaseDir(resolvedRoot), platform);
+  const manifest = readManifest(dir);
+  const entry = manifest.find((m) => m.source_job_id === jobId && m.file === file);
+  if (!entry) throw new Error("File not found in this job's repurpose history");
+  if (!entry.cover) throw new Error('This variation has no cover image');
+  const dirResolved = path.resolve(dir);
+  const imagePath = path.resolve(dir, entry.cover);
+  // Defense-in-depth: entry.cover is our own manifest data (only ever written by
+  // buildImageFilename above), but never resolve outside the platform's own folder.
+  if (!imagePath.startsWith(dirResolved + path.sep)) throw new Error('Invalid cover path');
+  if (!fs.existsSync(imagePath)) throw new Error('Cover image is missing on disk');
+  return imagePath;
+}
+
 // ── MongoDB sync (repurposed_posts collection) ──
 //
 // Every generated variation is also recorded in MongoDB (field names mirror Blogbot's
@@ -609,24 +639,28 @@ async function runRepurposeBatch(jobId, platforms, schedule = {}, categorySlug =
           // .md files, not half image blobs. Best-effort: a failed image never fails the
           // variation itself, same as the astro-git pipeline's image handling.
           let coverRelPath = null;
-          try {
-            const img = await imageService.saveTempImage(
-              variation.title,
-              rawData.primary_keyword || '',
-              rawData.theme || '',
-              job.generated_image_prompt || sourceTitle,
-              blog,
-              variation.content,
-              variation.meta_description
-            );
-            const coverBasename = buildImageFilename(site, slug, dt, index);
-            const imagesDir = path.join(outDir, 'images');
-            ensureDir(imagesDir);
-            fs.writeFileSync(path.join(imagesDir, coverBasename), img.buffer);
-            coverRelPath = `images/${coverBasename}`;
-            queueService.addLog(jobId, 'info', `Repurpose: image ready for ${platformMeta.label} ${index}/${count} (${img.source}) → repurposed/${site}/${coverRelPath}`);
-          } catch (err) {
-            queueService.addLog(jobId, 'warning', `Repurpose: image generation skipped for ${platformMeta.label} ${index}/${count} — ${err.message}`);
+          if (IMAGE_GENERATION_DISABLED_BLOGS.includes(blog.slug)) {
+            queueService.addLog(jobId, 'info', `Repurpose: image generation skipped for ${platformMeta.label} ${index}/${count} (manual images for this blog)`);
+          } else {
+            try {
+              const img = await imageService.saveTempImage(
+                variation.title,
+                rawData.primary_keyword || '',
+                rawData.theme || '',
+                job.generated_image_prompt || sourceTitle,
+                blog,
+                variation.content,
+                variation.meta_description
+              );
+              const coverBasename = buildImageFilename(site, slug, dt, index);
+              const imagesDir = path.join(outDir, 'images');
+              ensureDir(imagesDir);
+              fs.writeFileSync(path.join(imagesDir, coverBasename), img.buffer);
+              coverRelPath = `images/${coverBasename}`;
+              queueService.addLog(jobId, 'info', `Repurpose: image ready for ${platformMeta.label} ${index}/${count} (${img.source}) → repurposed/${site}/${coverRelPath}`);
+            } catch (err) {
+              queueService.addLog(jobId, 'warning', `Repurpose: image generation skipped for ${platformMeta.label} ${index}/${count} — ${err.message}`);
+            }
           }
 
           const frontmatter = [
@@ -721,4 +755,5 @@ module.exports = {
   getActiveBatches,
   getHistoryForJob,
   readHistoryFileContent,
+  readHistoryImagePath,
 };

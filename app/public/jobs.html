@@ -1180,13 +1180,13 @@ function repurposeHistoryRowHtml(jobId, h) {
         <span style="font-weight:500;flex:1;min-width:160px">${escHtml(h.title || '(untitled)')}</span>
         ${scoreChip}
         <span class="text-small text-muted" style="white-space:nowrap">📅 ${dt}${variationLabel}</span>
-        <button class="btn btn-secondary btn-sm" onclick="toggleHistoryPreview(this,'${jobId}','${h.platform}','${h.file}')">👁 Preview</button>
+        <button class="btn btn-secondary btn-sm" onclick="toggleHistoryPreview(this,'${jobId}','${h.platform}','${h.file}',${h.cover ? 'true' : 'false'})">👁 Preview</button>
       </div>
       <div class="rp-hist-preview hidden"></div>
     </div>`;
 }
 
-async function toggleHistoryPreview(btn, jobId, platform, file) {
+async function toggleHistoryPreview(btn, jobId, platform, file, hasCover) {
   const row = btn.closest('.rp-hist-row');
   const box = row.querySelector('.rp-hist-preview');
   if (!box.classList.contains('hidden')) {
@@ -1202,7 +1202,11 @@ async function toggleHistoryPreview(btn, jobId, platform, file) {
     box.innerHTML = `<div class="log-empty">${escHtml(data.error)}</div>`;
     return;
   }
-  box.innerHTML = `<pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.6;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px;max-height:320px;overflow:auto">${escHtml(data.content || '')}</pre>`;
+  const imageUrl = `/api/jobs/${jobId}/repurpose-history/image?platform=${encodeURIComponent(platform)}&file=${encodeURIComponent(file)}`;
+  const coverImg = hasCover
+    ? `<img src="${imageUrl}" alt="Cover" style="max-width:100%;border-radius:8px;border:1px solid var(--border);margin-top:8px" onerror="this.remove()" />`
+    : '';
+  box.innerHTML = `${coverImg}<pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.6;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px;max-height:320px;overflow:auto">${escHtml(data.content || '')}</pre>`;
 }
 
 // Fetch + render logs into an (already-open) inline panel — used by render() to

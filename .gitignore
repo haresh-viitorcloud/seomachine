@@ -135,3 +135,6 @@ app/playwright-browsers/
 
 # Generated image/asset outputs — served via WordPress or cloud storage, not versioned
 generated-assets/
+
+# Generated Blog image and .md file
+repurposed

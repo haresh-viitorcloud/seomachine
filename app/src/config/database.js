@@ -150,6 +150,11 @@ function initializeDatabase() {
     "ALTER TABLE jobs ADD COLUMN review_featured INTEGER DEFAULT 0",
     "ALTER TABLE jobs ADD COLUMN review_author TEXT DEFAULT ''",
     "ALTER TABLE jobs ADD COLUMN review_noindex INTEGER DEFAULT 0",
+    // Public URL of the featured image once uploaded to the blog's media library —
+    // lets the dashboard Preview modal show the actual generated image for WordPress/
+    // Statamic posts too, not just astro-git's locally-staged cover (see cover_image_url
+    // in dashboardRoutes.js).
+    "ALTER TABLE jobs ADD COLUMN generated_image_url TEXT DEFAULT ''",
   ];
   for (const sql of migrations) {
     // Only swallow the expected "duplicate column" case; surface any other failure

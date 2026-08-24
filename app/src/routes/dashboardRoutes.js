@@ -106,7 +106,11 @@ router.get('/api/jobs/:id/preview', requireAuth, (req, res) => {
     // Staged frontmatter date (YYYY-MM-DD) — live from meta.json, not mirrored to a DB
     // column, since it's only ever relevant while the post is staged for review.
     date: staging.date || '',
-    cover_image_url: staging.coverPath ? `/api/jobs/${req.params.id}/preview-image` : null,
+    // astro-git: locally-staged cover (before it's ever pushed). WordPress/Statamic:
+    // the real media-library URL captured at posting time (generated_image_url).
+    cover_image_url: staging.coverPath
+      ? `/api/jobs/${req.params.id}/preview-image`
+      : (job.generated_image_url || null),
     review_ready: staging.exists,
   });
 });
@@ -403,6 +407,20 @@ router.get('/api/jobs/:id/repurpose-history/file', requireAuth, async (req, res)
     res.json({ content });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Cover image for one previously-generated repurpose variation, for the History
+// preview. platform/file are cross-checked against this job's own manifest entry
+// inside readHistoryImagePath — not treated as trusted filesystem input.
+router.get('/api/jobs/:id/repurpose-history/image', requireAuth, async (req, res) => {
+  try {
+    const { platform, file } = req.query;
+    if (!platform || !file) return res.status(400).json({ error: 'platform and file are required' });
+    const imagePath = await repurposeService.readHistoryImagePath(req.params.id, String(platform), String(file));
+    res.sendFile(imagePath);
+  } catch (err) {
+    res.status(404).json({ error: err.message });
   }
 });
 
